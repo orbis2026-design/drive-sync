@@ -24,6 +24,11 @@ model Tenant {
   qboRealmId         String?
   qboAccessToken     String?
   qboRefreshToken    String?
+  // Google Business integration (Issue #33)
+  googlePlaceId      String?
+  reviewLink         String?
+  // Mechanic's forwarding cell phone for Twilio voice (Issue #34)
+  ownerPhone         String?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
@@ -32,6 +37,7 @@ model Tenant {
   workOrders        WorkOrder[]
   outboundCampaigns OutboundCampaign[]
   consumables       Consumable[]
+  warranties        Warranty[]
 }
 
 enum SubscriptionStatus {
@@ -204,4 +210,27 @@ model Consumable {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+}
+
+// ---------------------------------------------------------------------------
+// Warranty — tracks parts warranty windows per work-order line item (Issue #36).
+// ---------------------------------------------------------------------------
+model Warranty {
+  id              String   @id @default(cuid())
+  tenantId        String
+  workOrderId     String
+  clientId        String?
+  partName        String
+  partNumber      String?
+  supplier        String?
+  installedAt     DateTime @default(now())
+  warrantyMonths  Int      @default(12)
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([workOrderId])
 }

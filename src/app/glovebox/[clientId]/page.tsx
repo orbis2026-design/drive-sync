@@ -36,9 +36,20 @@ export type GloveboxWorkOrder = {
   closedAt: string | null;
 };
 
+export type GloveboxWarranty = {
+  id: string;
+  partName: string;
+  partNumber: string | null;
+  supplier: string | null;
+  installedAt: string;
+  warrantyMonths: number;
+  expiresAt: string;
+};
+
 export type GloveboxData = {
   client: { firstName: string; lastName: string; email: string | null };
   vehicles: GloveboxVehicle[];
+  warranties: GloveboxWarranty[];
 };
 
 async function fetchGloveboxData(
@@ -51,6 +62,7 @@ async function fetchGloveboxData(
         firstName: true,
         lastName: true,
         email: true,
+        tenantId: true,
         vehicles: {
           orderBy: { createdAt: "asc" },
           select: {
@@ -82,7 +94,8 @@ async function fetchGloveboxData(
 
     if (!client) return null;
 
-    const vehicles: GloveboxVehicle[] = client.vehicles.map((v) => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vehicles: GloveboxVehicle[] = (client.vehicles as any[]).map((v) => ({
       id: v.id,
       make: v.make,
       model: v.model,
@@ -92,7 +105,8 @@ async function fetchGloveboxData(
       mileageIn: v.mileageIn,
       oilType: v.oilType,
       tireSize: v.tireSize,
-      workOrders: v.workOrders.map((wo) => ({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      workOrders: (v.workOrders as any[]).map((wo) => ({
         id: wo.id,
         title: wo.title,
         description: wo.description,
@@ -101,6 +115,36 @@ async function fetchGloveboxData(
       })),
     }));
 
+    // Fetch active warranties for this client.
+    let warranties: GloveboxWarranty[] = [];
+    try {
+      const rawWarranties = await prisma.warranty.findMany({
+        where: { tenantId: client.tenantId, clientId },
+        orderBy: { expiresAt: "asc" },
+        select: {
+          id: true,
+          partName: true,
+          partNumber: true,
+          supplier: true,
+          installedAt: true,
+          warrantyMonths: true,
+          expiresAt: true,
+        },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      warranties = (rawWarranties as any[]).map((w) => ({
+        id: w.id,
+        partName: w.partName,
+        partNumber: w.partNumber,
+        supplier: w.supplier,
+        installedAt: w.installedAt.toISOString(),
+        warrantyMonths: w.warrantyMonths,
+        expiresAt: w.expiresAt.toISOString(),
+      }));
+    } catch {
+      // Non-fatal — warranties table may not exist in older environments.
+    }
+
     return {
       client: {
         firstName: client.firstName,
@@ -108,6 +152,7 @@ async function fetchGloveboxData(
         email: client.email,
       },
       vehicles,
+      warranties,
     };
   } catch {
     return null;

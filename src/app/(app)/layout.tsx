@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { CommandPaletteProvider } from "@/components/command-palette";
 
 // ---------------------------------------------------------------------------
 // Subscription guard — blocks PAST_DUE tenants from all pages except /settings/billing
@@ -45,5 +46,5 @@ export default async function AppLayout({
     }
   }
 
-  return <>{children}</>;
+  return <CommandPaletteProvider>{children}</CommandPaletteProvider>;
 }

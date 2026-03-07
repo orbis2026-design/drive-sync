@@ -20,7 +20,45 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  images: {
+    // Prefer modern formats for smaller file sizes on all devices.
+    formats: ["image/avif", "image/webp"],
+    // Allow images served from Supabase Storage.
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "**.supabase.co",
+      },
+    ],
+  },
+  // Serve static assets with aggressive Cache-Control headers from the
+  // Vercel Edge Network so repeat visitors never fetch unchanged assets.
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          // Stale-While-Revalidate pattern: serve cached content instantly
+          // while updating in the background.
+          {
+            key: "Cache-Control",
+            value: "public, max-age=0, s-maxage=86400, stale-while-revalidate=86400",
+          },
+        ],
+      },
+      {
+        // Immutable static assets produced by Next.js build (hashed filenames).
+        source: "/_next/static/(.*)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default withPWA(nextConfig);
+

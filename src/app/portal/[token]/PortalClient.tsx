@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import SignatureCanvas from "react-signature-canvas";
 import { approveQuote } from "./actions";
 import type { PortalData, MpiStatus } from "./actions";
+import { LiabilityWaiverModal } from "./liability";
 
 // Dynamically import the 3D viewer — WebGL is client-only, no SSR.
 const VehicleViewer = dynamic(
@@ -344,6 +345,21 @@ export function PortalClient({
   const [approved, setApproved] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showWaiver, setShowWaiver] = useState(false);
+
+  // Detect safety-critical FAIL items in MPI for the liability gatekeeper.
+  const failedCategories: string[] = data.mpi
+    ? (["fluids", "tires", "brakes", "belts"] as const).filter(
+        (key) => data.mpi![key]?.status === "FAIL",
+      )
+    : [];
+  const hasSafetyFails = failedCategories.length > 0;
+
+  // BNPL threshold: show Affirm badge when total exceeds $500.
+  const BNPL_THRESHOLD = 50_000;
+  const showBnplBadge = data.totalCents >= BNPL_THRESHOLD;
+  // Estimated monthly payment (assumes ~18 months at 0% for display purposes).
+  const estimatedMonthly = Math.ceil(data.totalCents / 18 / 100);
 
   if (data.status === "COMPLETE") {
     return <AlreadyApprovedScreen />;
@@ -365,8 +381,18 @@ export function PortalClient({
       return;
     }
     setErrorMsg(null);
-    const dataUrl = sigRef.current.toDataURL("image/png");
 
+    // If there are safety-critical FAIL items, require the liability waiver first.
+    if (hasSafetyFails) {
+      setShowWaiver(true);
+      return;
+    }
+
+    submitApproval();
+  }
+
+  function submitApproval() {
+    const dataUrl = sigRef.current!.toDataURL("image/png");
     startTransition(async () => {
       const result = await approveQuote(token, dataUrl);
       if ("error" in result) {
@@ -377,6 +403,15 @@ export function PortalClient({
     });
   }
 
+  function handleWaiverAccept() {
+    setShowWaiver(false);
+    submitApproval();
+  }
+
+  function handleWaiverCancel() {
+    setShowWaiver(false);
+  }
+
   if (approved) {
     return <SuccessScreen clientName={data.client.firstName} />;
   }
@@ -385,6 +420,14 @@ export function PortalClient({
 
   return (
     <div className="min-h-[100dvh] bg-gray-50">
+      {/* ── Liability Waiver Modal ─────────────────────────────────────── */}
+      {showWaiver && (
+        <LiabilityWaiverModal
+          failedCategories={failedCategories}
+          onAccept={handleWaiverAccept}
+          onCancel={handleWaiverCancel}
+        />
+      )}
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <header className="bg-white border-b border-gray-100 px-5 py-4 flex items-center gap-3 sticky top-0 z-10">
         <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
@@ -512,6 +555,24 @@ export function PortalClient({
               {formatDollars(data.totalCents)}
             </p>
           </div>
+
+          {/* BNPL badge — shown when total exceeds $500 */}
+          {showBnplBadge && (
+            <div className="mt-3 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 px-4 py-3 flex items-center gap-3">
+              <span className="text-lg" aria-hidden="true">💳</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-blue-900">
+                  Pay as low as ${estimatedMonthly}/mo with Affirm
+                </p>
+                <p className="text-xs text-blue-600 mt-0.5">
+                  0% APR options available · No impact to credit to check rates
+                </p>
+              </div>
+              <div className="flex-shrink-0 text-xs font-black text-blue-600 bg-blue-100 rounded-lg px-2 py-1">
+                BNPL
+              </div>
+            </div>
+          )}
         </section>
 
         {/* ── Signature Pad ─────────────────────────────────────────────── */}
