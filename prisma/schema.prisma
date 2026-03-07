@@ -64,6 +64,8 @@ model Client {
   phone             String
   zipCode           String?  // ZIP code used for drive-time padding calculations
   isCommercialFleet Boolean  @default(false) // true for small-business fleet accounts
+  // RBAC: Supabase Auth UID for the FLEET_CLIENT portal user (Issue #59)
+  clientUserId      String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -170,6 +172,10 @@ model WorkOrder {
   isDiagnostic       Boolean  @default(false)
   diagnosticFeeCents Int      @default(0)
   rollDiagnosticFee  Boolean  @default(false)
+  // RBAC: the FIELD_TECH auth user assigned to this job (Issue #59)
+  assignedTechId     String?
+  // QA & Dispatch queue flag — set by tech when pre-existing damage is documented (Issue #62)
+  hasDamageFlag      Boolean  @default(false)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
@@ -183,7 +189,7 @@ model WorkOrder {
 }
 
 enum WorkOrderStatus {
-  REQUESTED        // Customer self-submitted via intake link; awaiting shop review
+  REQUESTED                // Customer self-submitted via intake link; awaiting shop review
   INTAKE
   ACTIVE
   PENDING_APPROVAL
@@ -191,6 +197,7 @@ enum WorkOrderStatus {
   COMPLETE
   INVOICED
   PAID
+  BATCHED_PENDING_PAYMENT  // Rolled into a fleet batch invoice; awaiting Net-30 settlement
 }
 
 // ---------------------------------------------------------------------------
