@@ -82,9 +82,10 @@ export function useOfflineSync(): OfflineSyncState {
 
             const patch = JSON.parse(wo.pendingPatch) as Record<string, unknown>;
 
-            // Dynamic import avoids bundling server-only code in the client chunk.
-            // In production this would call the appropriate Server Action for each
-            // field changed (e.g. updateWorkOrderNotes, updateWorkOrderStatus).
+            // Flush the patch via the work-orders REST API endpoint.
+            // In a future iteration this can be replaced with a direct Server
+            // Action call (e.g. updateWorkOrderNotes) once the route handler
+            // is wired up.
             const res = await fetch(`/api/work-orders/${wo.id}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },

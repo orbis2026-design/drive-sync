@@ -125,7 +125,7 @@ export default async function GloveboxPage({
 }) {
   const { clientId } = await params;
 
-  // Basic validation: CUIDs are alphanumeric and 25 chars
+  // Validate the clientId: allow CUIDs (alphanumeric + hyphens, up to 64 chars).
   if (!clientId || clientId.length > 64 || !/^[a-z0-9_-]+$/i.test(clientId)) {
     notFound();
   }

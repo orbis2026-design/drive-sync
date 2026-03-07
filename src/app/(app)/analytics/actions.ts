@@ -12,10 +12,10 @@ const CARD_FEE_RATE = 0.029;
 const CARD_FEE_FIXED_CENTS = 30;
 
 /**
- * When partsCostCents is not recorded on a WorkOrder we assume a 45 % gross
- * margin on parts (i.e. wholesale cost = 55 % of retail price).
+ * When partsCostCents is not recorded on a WorkOrder we assume the wholesale
+ * cost represents 55% of the retail parts price (i.e. a ~45% gross margin).
  */
-const DEFAULT_PARTS_MARGIN = 0.55;
+const DEFAULT_PARTS_COST_RATIO = 0.55;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -90,7 +90,7 @@ export async function fetchAnalytics(): Promise<
       const cogs =
         wo.partsCostCents !== null
           ? wo.partsCostCents
-          : Math.round(wo.partsCents * DEFAULT_PARTS_MARGIN);
+          : Math.round(wo.partsCents * DEFAULT_PARTS_COST_RATIO);
       partsCOGSCents += cogs;
 
       // Card processing fees (approximate — applied to the full total)
