@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import {
   lockQuote,
@@ -297,6 +298,7 @@ function CustomerSuppliedToggle({
 // ---------------------------------------------------------------------------
 
 interface StickyTotalBarProps {
+  workOrderId: string;
   partsSubtotalCents: number;
   laborSubtotalCents: number;
   subtotalCents: number;
@@ -310,6 +312,7 @@ interface StickyTotalBarProps {
 }
 
 function StickyTotalBar({
+  workOrderId,
   partsSubtotalCents,
   laborSubtotalCents,
   subtotalCents,
@@ -422,20 +425,22 @@ function StickyTotalBar({
 
         {/* CTA */}
         {isLocked ? (
-          <div
+          <Link
+            href={`/quotes/${workOrderId}/send`}
             className={[
-              "flex items-center justify-center gap-2",
-              "rounded-2xl border-2 border-success-500/60 bg-success-500/10",
-              "px-4 py-4",
+              "flex w-full items-center justify-center gap-2",
+              "min-h-[64px] rounded-2xl",
+              "text-xl font-black uppercase tracking-widest text-gray-950",
+              "bg-success-400",
+              "shadow-[0_0_32px_8px_rgba(74,222,128,0.45)]",
+              "hover:bg-success-300 hover:shadow-[0_0_48px_12px_rgba(74,222,128,0.65)]",
+              "active:scale-[0.98]",
+              "transition-all duration-200",
+              "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-success-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900",
             ].join(" ")}
           >
-            <span className="text-success-400 font-black text-lg" aria-hidden="true">
-              ✓
-            </span>
-            <p className="text-sm font-bold text-success-400">
-              Quote locked — work order updated
-            </p>
-          </div>
+            Send to Client →
+          </Link>
         ) : (
           <button
             type="button"
@@ -653,6 +658,7 @@ export function QuoteBuilderClient({ data }: QuoteBuilderClientProps) {
 
       {/* ── Sticky Total Bar ─────────────────────────────────────────────── */}
       <StickyTotalBar
+        workOrderId={workOrderId}
         partsSubtotalCents={partsSubtotalCents}
         laborSubtotalCents={laborSubtotalCents}
         subtotalCents={subtotalCents}

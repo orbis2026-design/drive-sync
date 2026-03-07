@@ -98,18 +98,19 @@ model Vehicle {
 // WorkOrder – the core operational record for a job.
 // ---------------------------------------------------------------------------
 model WorkOrder {
-  id          String          @id @default(cuid())
-  tenantId    String
-  clientId    String
-  vehicleId   String
-  status      WorkOrderStatus @default(INTAKE)
-  title       String
-  description String
-  notes       String?
-  laborCents  Int             @default(0)
-  partsCents  Int             @default(0)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id            String          @id @default(cuid())
+  tenantId      String
+  clientId      String
+  vehicleId     String
+  status        WorkOrderStatus @default(INTAKE)
+  title         String
+  description   String
+  notes         String?
+  laborCents    Int             @default(0)
+  partsCents    Int             @default(0)
+  approvalToken String?         @unique
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   client  Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -122,6 +123,7 @@ model WorkOrder {
 enum WorkOrderStatus {
   INTAKE
   ACTIVE
+  PENDING_APPROVAL
   COMPLETE
   INVOICED
 }

@@ -52,6 +52,26 @@ export interface QuoteCalculation {
   totalCents: number;
 }
 
+/** Everything the Send Quote page needs on initial render. */
+export interface SendPageData {
+  workOrderId: string;
+  title: string;
+  laborCents: number;
+  partsCents: number;
+  parts: SelectedPart[];
+  shopRateCents: number;
+  client: {
+    firstName: string;
+    lastName: string;
+    phone: string;
+  };
+  vehicle: {
+    make: string;
+    model: string;
+    year: number;
+  };
+}
+
 /** Shared return type for write server actions. */
 export interface ActionResult {
   error?: string;
@@ -102,6 +122,19 @@ async function fetchShopRate(tenantId: string): Promise<number> {
     // Column not present yet, or DB unavailable — fall back to demo default.
   }
   return DEFAULT_SHOP_RATE_CENTS;
+}
+
+/**
+ * Simulates a Twilio SMS API call.
+ * In production replace this stub with a real Twilio client:
+ *   const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+ *   await client.messages.create({ to, from: process.env.TWILIO_PHONE_NUMBER, body });
+ */
+function simulateTwilioSMS(to: string, body: string): void {
+  console.log("[Twilio SMS] ──────────────────────────────────────────────");
+  console.log(`[Twilio SMS] To:   ${to}`);
+  console.log(`[Twilio SMS] Body: ${body}`);
+  console.log("[Twilio SMS] ──────────────────────────────────────────────");
 }
 
 // ---------------------------------------------------------------------------
@@ -247,4 +280,189 @@ export async function lockQuote(
       totalCents,
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Server Action — getSendPageData
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetches everything the Send Quote page needs:
+ *   - Locked WorkOrder totals (laborCents, partsCents)
+ *   - Client name and phone number
+ *   - Vehicle year/make/model
+ *   - Parts list for display
+ *   - Tenant shop labour rate for recalculating tax
+ *
+ * Returns an error if the work order is not yet locked (status !== ACTIVE).
+ */
+export async function getSendPageData(
+  workOrderId: string,
+): Promise<{ data: SendPageData } | { error: string }> {
+  if (!workOrderId) {
+    return { error: "Missing work order ID." };
+  }
+
+  let workOrder: {
+    id: string;
+    title: string;
+    status: string;
+    laborCents: number;
+    partsCents: number;
+    tenantId: string;
+    clientId: string;
+    client: { firstName: string; lastName: string; phone: string };
+    vehicle: { make: string; model: string; year: number };
+  } | null = null;
+
+  try {
+    workOrder = await prisma.workOrder.findUnique({
+      where: { id: workOrderId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        laborCents: true,
+        partsCents: true,
+        tenantId: true,
+        clientId: true,
+        client: { select: { firstName: true, lastName: true, phone: true } },
+        vehicle: { select: { make: true, model: true, year: true } },
+      },
+    });
+  } catch {
+    // Database unavailable in demo — fall through to error below.
+  }
+
+  if (!workOrder) {
+    return { error: "Work order not found." };
+  }
+
+  // Allow mechanics to revisit the send page even after the SMS has been sent
+  // (PENDING_APPROVAL). Only INTAKE / COMPLETE / INVOICED states are rejected.
+  if (workOrder.status !== "ACTIVE" && workOrder.status !== "PENDING_APPROVAL") {
+    return {
+      error:
+        "Quote has not been locked yet. Please return to the Quote Builder and lock the quote before sending.",
+    };
+  }
+
+  const [parts, shopRateCents] = await Promise.all([
+    fetchPartsJson(workOrderId),
+    fetchShopRate(workOrder.tenantId),
+  ]);
+
+  return {
+    data: {
+      workOrderId: workOrder.id,
+      title: workOrder.title,
+      laborCents: workOrder.laborCents,
+      partsCents: workOrder.partsCents,
+      parts,
+      shopRateCents,
+      client: workOrder.client,
+      vehicle: workOrder.vehicle,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Server Action — sendQuote
+// ---------------------------------------------------------------------------
+
+/**
+ * Finalises the quote for client delivery:
+ *   1. Validates the work order is locked (ACTIVE status).
+ *   2. Generates a cryptographically secure UUID approval token.
+ *   3. Persists the token and transitions status to PENDING_APPROVAL via Prisma.
+ *   4. Mirrors the update to the Supabase `work_orders` row (best-effort).
+ *   5. Simulates a Twilio SMS to the client's phone number.
+ *
+ * Prevents double-sends: once status is PENDING_APPROVAL the action is a no-op
+ * for any subsequent calls on the same work order.
+ */
+export async function sendQuote(
+  workOrderId: string,
+): Promise<{ success: true } | { error: string }> {
+  if (!workOrderId) {
+    return { error: "Missing work order ID." };
+  }
+
+  // --- Fetch WorkOrder + client data -----------------------------------
+  let workOrder: {
+    status: string;
+    title: string;
+    client: { firstName: string; lastName: string; phone: string };
+  } | null = null;
+
+  try {
+    workOrder = await prisma.workOrder.findUnique({
+      where: { id: workOrderId },
+      select: {
+        status: true,
+        title: true,
+        client: { select: { firstName: true, lastName: true, phone: true } },
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Database error.";
+    return { error: message };
+  }
+
+  if (!workOrder) {
+    return { error: "Work order not found." };
+  }
+
+  if (workOrder.status === "PENDING_APPROVAL") {
+    // Already sent — treat as a success to allow retries from the UI.
+    return { success: true };
+  }
+
+  if (workOrder.status !== "ACTIVE") {
+    return {
+      error:
+        "Quote must be locked before sending. Please lock the quote first.",
+    };
+  }
+
+  // --- Generate secure approval token ----------------------------------
+  const token = crypto.randomUUID();
+
+  // --- Persist token + status transition via Prisma --------------------
+  try {
+    await prisma.workOrder.update({
+      where: { id: workOrderId },
+      data: {
+        status: "PENDING_APPROVAL",
+        approvalToken: token,
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error.";
+    return { error: `Failed to save approval token: ${message}` };
+  }
+
+  // --- Mirror update to Supabase work_orders (best-effort) -------------
+  try {
+    const adminDb = createAdminClient();
+    await adminDb
+      .from("work_orders")
+      .update({ approval_token: token, status: "PENDING_APPROVAL" })
+      .eq("id", workOrderId);
+  } catch {
+    // Non-fatal — Prisma write succeeded; Supabase column may not be
+    // migrated yet in the current environment.
+  }
+
+  // --- Simulate Twilio SMS ---------------------------------------------
+  const portalBaseUrl =
+    process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? "https://app.domain.com";
+  const portalUrl = `${portalBaseUrl}/portal/${token}`;
+  const smsBody =
+    `Your mechanic has finished diagnosing your vehicle. ` +
+    `Tap here to review and approve the repair quote: ${portalUrl}`;
+
+  simulateTwilioSMS(workOrder.client.phone, smsBody);
+
+  return { success: true };
 }
