@@ -6,9 +6,6 @@ import { TAX_RATE, DEFAULT_SHOP_RATE_CENTS } from "./constants";
 import { getDueServices, type DueService, formatMilesUntilDue } from "@/lib/predictive-service";
 import { MaintenanceScheduleSchema } from "@/lib/schemas/maintenance";
 
-export type { DueService };
-export { formatMilesUntilDue };
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------

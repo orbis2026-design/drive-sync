@@ -12,7 +12,7 @@ import type { SupplierPart } from "@/lib/supplier-api";
 // Static vehicle + category data (would come from DB in full production)
 // ---------------------------------------------------------------------------
 
-const VEHICLE_YEARS = Array.from({ length: 16 }, (_, i) => 2026 - i);
+const VEHICLE_YEARS = Array.from({ length: 37 }, (_, i) => 2026 - i);
 
 const VEHICLE_MAKES = [
   "Toyota",
@@ -305,9 +305,12 @@ export default function PartsCatalogClient() {
               <label className="block text-xs text-gray-500 mb-1">Year</label>
               <select
                 value={vehicle.year ?? ""}
-                onChange={(e) =>
-                  setVehicle({ year: Number(e.target.value) })
-                }
+                onChange={(e) => {
+                  setVehicle({ year: Number(e.target.value) });
+                  setParts([]);
+                  setSelectedCategory(null);
+                  setSelectedSub(null);
+                }}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-brand-400"
               >
                 <option value="">Year</option>
@@ -324,12 +327,15 @@ export default function PartsCatalogClient() {
               <label className="block text-xs text-gray-500 mb-1">Make</label>
               <select
                 value={vehicle.make ?? ""}
-                onChange={(e) =>
+                onChange={(e) => {
                   setVehicle((prev) => ({
                     year: prev.year,
                     make: e.target.value,
-                  }))
-                }
+                  }));
+                  setParts([]);
+                  setSelectedCategory(null);
+                  setSelectedSub(null);
+                }}
                 disabled={!vehicle.year}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-brand-400 disabled:opacity-40"
               >
@@ -349,9 +355,12 @@ export default function PartsCatalogClient() {
               </label>
               <select
                 value={vehicle.model ?? ""}
-                onChange={(e) =>
-                  setVehicle((prev) => ({ ...prev, model: e.target.value }))
-                }
+                onChange={(e) => {
+                  setVehicle((prev) => ({ ...prev, model: e.target.value }));
+                  setParts([]);
+                  setSelectedCategory(null);
+                  setSelectedSub(null);
+                }}
                 disabled={!vehicle.make}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-brand-400 disabled:opacity-40"
               >
@@ -442,7 +451,7 @@ export default function PartsCatalogClient() {
                       <p className="text-xs text-gray-500 mt-0.5">
                         {part.brand} · #{part.partNumber}
                       </p>
-                      <div className="flex items-center gap-3 mt-2">
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
                         <span className="text-xs text-gray-400">
                           Cost {formatCents(part.wholesalePriceCents)}
                         </span>
@@ -452,6 +461,26 @@ export default function PartsCatalogClient() {
                         <span className="text-xs text-gray-500">
                           ~{part.etaMinutes} min
                         </span>
+                        {/* Supplier source badge */}
+                        <a
+                          href={part.sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] px-1.5 py-0.5 rounded border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 transition-colors"
+                          title={`View on ${part.source}`}
+                        >
+                          {part.source}
+                        </a>
+                        {/* Availability badge */}
+                        {part.availabilityType === "SAME_DAY" ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-900/40 border border-green-700 text-green-400 font-semibold">
+                            Same Day
+                          </span>
+                        ) : (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 border border-amber-700 text-amber-400 font-semibold">
+                            Order Only
+                          </span>
+                        )}
                       </div>
                     </div>
                     <button
