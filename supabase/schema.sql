@@ -142,6 +142,10 @@ create table if not exists work_orders (
   mileage_at_intake integer            check (mileage_at_intake >= 0),
   labor_cents       integer            not null default 0 check (labor_cents >= 0),
   parts_cents       integer            not null default 0 check (parts_cents >= 0),
+  -- Multi-point inspection results persisted as a JSON blob.
+  -- Shape: { fluids, tires, brakes, belts } each with { status, note }
+  -- status is one of 'PASS' | 'MONITOR' | 'FAIL' | null
+  inspection_json   jsonb,
   created_at        timestamptz        not null default now(),
   updated_at        timestamptz        not null default now()
 );
