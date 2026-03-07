@@ -1,9 +1,16 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import dynamic from "next/dynamic";
 import SignatureCanvas from "react-signature-canvas";
 import { approveQuote } from "./actions";
 import type { PortalData, MpiStatus } from "./actions";
+
+// Dynamically import the 3D viewer — WebGL is client-only, no SSR.
+const VehicleViewer = dynamic(
+  () => import("@/components/3d-vehicle-viewer"),
+  { ssr: false, loading: () => null },
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -441,6 +448,25 @@ export function PortalClient({
                 );
               })}
             </div>
+          </section>
+        )}
+
+        {/* ── 3D Vehicle Handoff Visualizer ─────────────────────────────── */}
+        {data.mpi && (
+          <section
+            aria-labelledby="viewer-heading"
+            className="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-5"
+          >
+            <h2
+              id="viewer-heading"
+              className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3"
+            >
+              3D Vehicle Inspection View
+            </h2>
+            <p className="text-xs text-gray-400 mb-3">
+              Drag to rotate · Pinch to zoom · Red = needs attention
+            </p>
+            <VehicleViewer mpi={data.mpi} heightClass="h-56" />
           </section>
         )}
 
