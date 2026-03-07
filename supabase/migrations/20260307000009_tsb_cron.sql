@@ -13,11 +13,26 @@
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
--- Enable required extensions (idempotent)
+-- Enable required extensions (idempotent, exception-safe)
+-- pg_cron and http may already exist in a different schema on some Supabase
+-- configurations; the EXCEPTION block prevents a hard failure in that case.
 -- ---------------------------------------------------------------------------
 
-create extension if not exists pg_cron   with schema extensions;
-create extension if not exists http      with schema extensions;
+do $$
+begin
+  create extension if not exists pg_cron with schema extensions;
+exception when others then
+  raise notice 'pg_cron extension could not be created in schema extensions: %. Skipping.', sqlerrm;
+end;
+$$;
+
+do $$
+begin
+  create extension if not exists http with schema extensions;
+exception when others then
+  raise notice 'http extension could not be created in schema extensions: %. Skipping.', sqlerrm;
+end;
+$$;
 
 -- ---------------------------------------------------------------------------
 -- Helper function — identify the top-N most-referenced GlobalVehicle IDs
@@ -53,7 +68,6 @@ create or replace procedure run_tsb_sync()
 language plpgsql security definer
 as $$
 declare
-  rec          record;
   edge_fn_url  text;
   payload      jsonb;
   gv_ids       uuid[] := '{}';
@@ -96,22 +110,28 @@ comment on procedure run_tsb_sync() is
 
 -- ---------------------------------------------------------------------------
 -- Schedule the cron job — runs at 02:00 UTC on the 1st of Jan and Jul
+-- Wrapped in an exception-safe DO block so a missing/inaccessible pg_cron
+-- installation does not abort the entire migration.
 -- ---------------------------------------------------------------------------
 
 do $$
 begin
-  if exists (select 1 from cron.job where jobname = 'tsb-sync-biannual') then
+  -- Unschedule any pre-existing job with the same name (idempotent).
+  begin
     perform cron.unschedule('tsb-sync-biannual');
-  end if;
+  exception when others then
+    null; -- job did not exist or cron schema not accessible; continue
+  end;
+
+  -- Schedule the biannual TSB sync job.
+  begin
+    perform cron.schedule(
+      'tsb-sync-biannual',
+      '0 2 1 1,7 *',   -- 02:00 UTC on 1 Jan and 1 Jul (every 6 months)
+      $$call run_tsb_sync();$$
+    );
+  exception when others then
+    raise notice 'TSB cron job could not be scheduled: %. Migration continues without it.', sqlerrm;
+  end;
 end;
 $$;
-
-select cron.schedule(
-  'tsb-sync-biannual',
-  '0 2 1 1,7 *',   -- 02:00 UTC on 1 Jan and 1 Jul (every 6 months)
-  $$call run_tsb_sync();$$
-);
-
-comment on schema cron is
-  'pg_cron job scheduler. '
-  'tsb-sync-biannual: refreshes TSB data every 6 months (Issue #56).';
