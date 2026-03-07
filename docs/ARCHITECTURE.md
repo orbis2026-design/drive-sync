@@ -20,7 +20,7 @@ The schema is generated and maintained by **Prisma** (ORM) and deployed to Supab
 ```mermaid
 erDiagram
     Tenants {
-        string id PK
+        uuid   id PK
         string name
         string slug
         string stripeCustomerId
@@ -30,8 +30,8 @@ erDiagram
     }
 
     Clients {
-        string  id PK
-        string  tenantId FK
+        uuid    id PK
+        uuid    tenantId FK
         string  firstName
         string  lastName
         string  phone
@@ -40,10 +40,10 @@ erDiagram
     }
 
     Vehicles {
-        string id PK
-        string tenantId FK
-        string clientId FK
-        string globalVehicleId FK
+        uuid   id PK
+        uuid   tenantId FK
+        uuid   clientId FK
+        uuid   globalVehicleId FK
         string make
         string model
         int    year
@@ -52,10 +52,10 @@ erDiagram
     }
 
     WorkOrders {
-        string   id PK
-        string   tenantId FK
-        string   clientId FK
-        string   vehicleId FK
+        uuid     id PK
+        uuid     tenantId FK
+        uuid     clientId FK
+        uuid     vehicleId FK
         string   status
         string   title
         int      laborCents
@@ -69,7 +69,7 @@ erDiagram
     }
 
     GlobalVehicles {
-        string id PK
+        uuid   id PK
         string make
         string model
         int    yearStart
