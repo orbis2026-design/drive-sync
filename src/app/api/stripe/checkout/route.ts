@@ -1,45 +1,122 @@
 /**
  * POST /api/stripe/checkout
  *
- * Creates a Stripe Checkout session for a given WorkOrder.
- * Enables Affirm and Klarna BNPL payment methods for totals above $500.
+ * Dual-mode Stripe Checkout handler:
+ *
+ * ① Subscription mode (pricing table → subscribe)
+ *    Request body: { priceId: string }
+ *    Creates a new Stripe Customer (or reuses existing), then a Checkout
+ *    Session in `subscription` mode. Passes `client_reference_id` set to the
+ *    caller's Supabase auth.uid() so the webhook can identify who paid.
+ *    Redirects to: /onboarding (success) / / (cancel)
+ *
+ * ② Work-order payment mode (BNPL, existing flow)
+ *    Request body: { workOrderId?: string; token?: string }
+ *    Creates a one-time Stripe Checkout Session for a WorkOrder.
+ *    Enables Affirm and Klarna BNPL payment methods for totals above $500.
  *
  * Environment variables required:
  *   STRIPE_SECRET_KEY            — Stripe secret API key
  *   NEXT_PUBLIC_APP_URL          — Base URL of this app (for success/cancel redirects)
- *   DEMO_TENANT_ID               — Fallback tenant ID
+ *   DEMO_TENANT_ID               — Fallback tenant ID (work-order mode)
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
+import { getStripe } from "@/lib/stripe";
+import { getSessionUserId } from "@/lib/auth";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 /** Minimum order total (in cents) to offer BNPL payment methods. */
 const BNPL_THRESHOLD_CENTS = 50_000; // $500.00
 
-/** Lazily-initialized Stripe client (avoids build-time initialization errors). */
-function getStripe(): Stripe {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) {
-    throw new Error(
-      "STRIPE_SECRET_KEY environment variable is not set.",
-    );
-  }
-  return new Stripe(key, { apiVersion: "2026-02-25.clover" });
-}
-
 export async function POST(req: NextRequest) {
-  let body: { workOrderId?: string; token?: string } = {};
+  let body: { priceId?: string; workOrderId?: string; token?: string } = {};
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+
+  // ---------------------------------------------------------------------------
+  // ① Subscription checkout — triggered from the marketing pricing table
+  // ---------------------------------------------------------------------------
+  if (body.priceId) {
+    const priceId = body.priceId;
+
+    // Identify the caller via their Supabase session cookie.
+    const userId = await getSessionUserId();
+    if (!userId) {
+      return NextResponse.json(
+        { error: "You must be signed in to start a subscription." },
+        { status: 401 },
+      );
+    }
+
+    let session: Stripe.Checkout.Session;
+    try {
+      const stripe = getStripe();
+      const admin = createAdminClient();
+
+      // Re-use the existing Stripe customer if this user's tenant already has one,
+      // otherwise create a fresh customer. This prevents duplicate customer records
+      // when the user clicks "Start Trial" more than once.
+      let stripeCustomerId: string | null = null;
+
+      const { data: tenantRow } = await admin
+        .from("tenants")
+        .select("stripe_customer_id")
+        .eq("owner_user_id", userId)
+        .maybeSingle();
+
+      if (tenantRow?.stripe_customer_id) {
+        stripeCustomerId = tenantRow.stripe_customer_id as string;
+      } else {
+        const customer = await stripe.customers.create({
+          metadata: { supabase_uid: userId },
+        });
+        stripeCustomerId = customer.id;
+      }
+
+      session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        payment_method_types: ["card"],
+        customer: stripeCustomerId,
+        // client_reference_id is the canonical way to identify who paid.
+        // The webhook reads this field to update the Tenants row.
+        client_reference_id: userId,
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        subscription_data: {
+          trial_period_days: 14,
+          metadata: { supabase_uid: userId },
+        },
+        success_url: `${appUrl}/onboarding`,
+        cancel_url: `${appUrl}/`,
+        billing_address_collection: "auto",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Stripe error";
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+
+    return NextResponse.json({ url: session.url, sessionId: session.id });
+  }
+
+  // ---------------------------------------------------------------------------
+  // ② Work-order payment checkout (BNPL — existing flow, unchanged)
+  // ---------------------------------------------------------------------------
   const { workOrderId, token } = body;
   if (!workOrderId && !token) {
     return NextResponse.json(
-      { error: "workOrderId or token is required" },
+      { error: "priceId, workOrderId, or token is required" },
       { status: 400 },
     );
   }
@@ -84,8 +161,6 @@ export async function POST(req: NextRequest) {
   const subtotal = workOrder.laborCents + workOrder.partsCents;
   const tax = Math.round(subtotal * TAX_RATE);
   const totalCents = subtotal + tax;
-
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
 
   // --- Determine payment methods -------------------------------------------
   // Always include card. Add Affirm and Klarna when the total exceeds $500
