@@ -383,7 +383,7 @@ export async function getSendPageData(
  */
 export async function sendQuote(
   workOrderId: string,
-): Promise<{ success: true } | { error: string }> {
+): Promise<{ success: true; portalUrl: string; smsBody: string } | { error: string }> {
   if (!workOrderId) {
     return { error: "Missing work order ID." };
   }
@@ -415,7 +415,26 @@ export async function sendQuote(
 
   if (workOrder.status === "PENDING_APPROVAL") {
     // Already sent — treat as a success to allow retries from the UI.
-    return { success: true };
+    // Fetch the existing token to rebuild the portal URL.
+    let existingToken: string | null = null;
+    try {
+      const existing = await prisma.workOrder.findUnique({
+        where: { id: workOrderId },
+        select: { approvalToken: true, client: { select: { phone: true } } },
+      });
+      existingToken = existing?.approvalToken ?? null;
+    } catch {
+      // Best-effort; proceed without the URL.
+    }
+    const portalBaseUrl =
+      process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? "https://app.domain.com";
+    const portalUrl = existingToken
+      ? `${portalBaseUrl}/portal/${existingToken}`
+      : `${portalBaseUrl}/portal/`;
+    const smsBody =
+      `Your mechanic has finished diagnosing your vehicle. ` +
+      `Tap here to review and approve the repair quote: ${portalUrl}`;
+    return { success: true, portalUrl, smsBody };
   }
 
   if (workOrder.status !== "ACTIVE") {
@@ -464,5 +483,5 @@ export async function sendQuote(
 
   simulateTwilioSMS(workOrder.client.phone, smsBody);
 
-  return { success: true };
+  return { success: true, portalUrl, smsBody };
 }

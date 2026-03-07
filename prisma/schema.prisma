@@ -29,6 +29,9 @@ model Tenant {
   reviewLink         String?
   // Mechanic's forwarding cell phone for Twilio voice (Issue #34)
   ownerPhone         String?
+  // Feature flags for optional product modules (Issue #49)
+  // Shape: { "inventory": Boolean, "marketing": Boolean, "fleet": Boolean }
+  featuresJson       Json               @default("{\"inventory\":true,\"marketing\":true,\"fleet\":true}")
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 

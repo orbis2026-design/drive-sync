@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -200,23 +201,56 @@ function AccountingIcon({ className }: { className?: string }) {
   );
 }
 
-const TABS: NavTab[] = [
+const ALL_TABS: (NavTab & { featureKey?: string })[] = [
   { href: "/clients",    label: "Clients",      icon: ClientsIcon    },
   { href: "/scan",       label: "Scan VIN",     icon: ScanVinIcon    },
   { href: "/jobs",       label: "Active Jobs",  icon: ActiveJobsIcon },
   { href: "/calendar",   label: "Calendar",     icon: CalendarIcon   },
-  { href: "/inventory",  label: "Inventory",    icon: InventoryIcon  },
-  { href: "/marketing",  label: "Marketing",    icon: MarketingIcon  },
+  { href: "/inventory",  label: "Inventory",    icon: InventoryIcon,  featureKey: "inventory" },
+  { href: "/marketing",  label: "Marketing",    icon: MarketingIcon,  featureKey: "marketing" },
   { href: "/analytics",  label: "Financials",   icon: AnalyticsIcon  },
   { href: "/accounting", label: "Accounting",   icon: AccountingIcon },
   { href: "/settings",   label: "Settings",     icon: SettingsIcon   },
 ];
+
+const LS_FEATURES_KEY = "ds_features";
+
+function loadNavFeatures(): Record<string, boolean> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(LS_FEATURES_KEY);
+    if (raw) return JSON.parse(raw) as Record<string, boolean>;
+  } catch {
+    // ignore
+  }
+  return {};
+}
 
 // ---------------------------------------------------------------------------
 // MobileNav — Bottom Tab Bar (mobile) / Left Sidebar (desktop)
 // ---------------------------------------------------------------------------
 export function MobileNav() {
   const pathname = usePathname();
+  const [features, setFeatures] = useState<Record<string, boolean>>(() =>
+    typeof window !== "undefined" ? loadNavFeatures() : {}
+  );
+
+  useEffect(() => {
+    // Re-read features when they are updated (e.g. from the preferences page)
+    function handleStorage(e: StorageEvent) {
+      if (e.key === LS_FEATURES_KEY) {
+        setFeatures(loadNavFeatures());
+      }
+    }
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  const TABS = ALL_TABS.filter((tab) => {
+    if (!tab.featureKey) return true;
+    // Default to showing the tab if the feature hasn't been explicitly disabled
+    return features[tab.featureKey] !== false;
+  });
 
   return (
     <nav
