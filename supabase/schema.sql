@@ -127,6 +127,7 @@ create index if not exists idx_tenant_vehicles_global_vehicle_id on tenant_vehic
 create type work_order_status as enum (
   'INTAKE',
   'ACTIVE',
+  'PENDING_APPROVAL',
   'COMPLETE',
   'INVOICED'
 );
@@ -146,6 +147,11 @@ create table if not exists work_orders (
   -- Shape: { fluids, tires, brakes, belts } each with { status, note }
   -- status is one of 'PASS' | 'MONITOR' | 'FAIL' | null
   inspection_json   jsonb,
+  -- Finalised parts list written by the Parts Sourcing step.
+  -- Shape: SelectedPart[] — see src/app/(app)/quotes/[workOrderId]/actions.ts
+  parts_json        jsonb,
+  -- Secure token sent to client for approval portal access.
+  approval_token    uuid               unique,
   created_at        timestamptz        not null default now(),
   updated_at        timestamptz        not null default now()
 );
