@@ -258,3 +258,54 @@ create index if not exists idx_outbound_campaigns_tenant_vehicle_id
 create trigger trg_outbound_campaigns_updated_at
   before update on outbound_campaigns
   for each row execute function set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 7. warranties
+--    Tracks parts-level warranty windows per work-order line item (Phase 9).
+--    expires_at is computed by a trigger because TIMESTAMPTZ + INTERVAL is
+--    only STABLE (not IMMUTABLE), so GENERATED ALWAYS AS STORED cannot be used.
+-- ---------------------------------------------------------------------------
+create table if not exists warranties (
+  id              uuid        primary key default uuid_generate_v4(),
+  tenant_id       uuid        not null references tenants (id) on delete cascade,
+  work_order_id   text        not null,  -- Prisma CUID from work_orders.id
+  client_id       uuid        references clients (id) on delete set null,
+  part_name       text        not null,
+  part_number     text,
+  supplier        text,
+  installed_at    timestamptz not null default now(),
+  warranty_months integer     not null default 12,
+  expires_at      timestamptz,           -- computed by trigger below
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+comment on table warranties is
+  'Parts-level warranty windows per work-order line item.';
+comment on column warranties.expires_at is
+  'Auto-computed by trg_warranties_compute_expires: installed_at + warranty_months months.';
+
+create index if not exists idx_warranties_tenant_id
+  on warranties (tenant_id);
+create index if not exists idx_warranties_work_order_id
+  on warranties (work_order_id);
+
+-- Trigger function: TIMESTAMPTZ + INTERVAL is STABLE, not IMMUTABLE, so we
+-- cannot use GENERATED ALWAYS AS STORED. A BEFORE trigger is the standard fix.
+create or replace function compute_warranty_expires_at()
+returns trigger language plpgsql as $$
+begin
+  new.expires_at := new.installed_at + (new.warranty_months * interval '1 month');
+  return new;
+end;
+$$;
+
+create trigger trg_warranties_compute_expires
+  before insert or update of installed_at, warranty_months
+  on warranties
+  for each row
+  execute function compute_warranty_expires_at();
+
+create trigger trg_warranties_updated_at
+  before update on warranties
+  for each row execute function set_updated_at();
