@@ -98,9 +98,13 @@ comment on procedure run_tsb_sync() is
 -- Schedule the cron job — runs at 02:00 UTC on the 1st of Jan and Jul
 -- ---------------------------------------------------------------------------
 
-select cron.unschedule('tsb-sync-biannual') where exists (
-  select 1 from cron.job where jobname = 'tsb-sync-biannual'
-);
+do $$
+begin
+  if exists (select 1 from cron.job where jobname = 'tsb-sync-biannual') then
+    perform cron.unschedule('tsb-sync-biannual');
+  end if;
+end;
+$$;
 
 select cron.schedule(
   'tsb-sync-biannual',

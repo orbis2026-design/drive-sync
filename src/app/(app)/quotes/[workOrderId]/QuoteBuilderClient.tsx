@@ -711,7 +711,7 @@ export function QuoteBuilderClient({ data }: QuoteBuilderClientProps) {
 
           {/* ── Manufacturer Recommended Due Services (Issue #57) ──────── */}
           <DueServicesSection
-            dueServices={dueServices ?? []}
+            dueServices={dueServices}
             addedTasks={addedTasks}
             onToggle={handleDueServiceToggle}
           />

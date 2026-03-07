@@ -112,7 +112,7 @@ function findApproachingMilestones(
     const nextOccurrence = Math.ceil(projectedMileage / base) * base;
     const milesAway = nextOccurrence - projectedMileage;
 
-    if (milesAway < 0 || milesAway > LOOK_AHEAD_MILES) continue;
+    if (milesAway > LOOK_AHEAD_MILES) continue;
 
     // Confirm the milestone is represented in this vehicle's matrix.
     if (!matrixMileages.has(nextOccurrence)) continue;

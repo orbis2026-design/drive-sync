@@ -221,11 +221,18 @@ export async function getQuoteData(
       // Build the set of completed task names from past PAID WorkOrders.
       const completedTasks: string[] = [];
       for (const wo of workOrder.vehicle.workOrders) {
-        if (Array.isArray(wo.laborJson)) {
-          for (const item of wo.laborJson as { description?: string }[]) {
-            if (typeof item.description === "string" && item.description) {
-              completedTasks.push(item.description);
-            }
+        if (!Array.isArray(wo.laborJson)) continue;
+        for (const item of wo.laborJson) {
+          if (
+            item !== null &&
+            typeof item === "object" &&
+            "description" in item &&
+            typeof (item as Record<string, unknown>).description === "string" &&
+            (item as Record<string, unknown>).description
+          ) {
+            completedTasks.push(
+              (item as Record<string, unknown>).description as string,
+            );
           }
         }
       }

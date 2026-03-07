@@ -26,7 +26,7 @@ export interface DueService {
    * Negative values indicate the vehicle has already passed the milestone.
    */
   milesUntilDue: number;
-  /** True when the vehicle has already passed this milestone. */
+  /** True when the vehicle has already passed this milestone (milesUntilDue < 0). */
   isOverdue: boolean;
 }
 
@@ -76,7 +76,6 @@ export function getDueServices(
     // the next due milestone is 60 000.
     const nextMilestone = nextOccurrence(currentMileage, interval.mileage);
     const milesUntilDue = nextMilestone - currentMileage;
-    const isOverdue = milesUntilDue <= 0;
 
     // Include tasks that are overdue or within the look-ahead window.
     if (milesUntilDue <= LOOK_AHEAD_MILES) {
@@ -86,7 +85,7 @@ export function getDueServices(
           mileage: nextMilestone,
           task,
           milesUntilDue,
-          isOverdue,
+          isOverdue: milesUntilDue < 0,
         });
       }
     }
