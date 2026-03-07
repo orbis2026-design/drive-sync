@@ -52,6 +52,44 @@ export type GloveboxData = {
   warranties: GloveboxWarranty[];
 };
 
+// ---------------------------------------------------------------------------
+// Internal types that match the Prisma select shapes used below.
+// These avoid `any` casts while keeping the code compile-safe even when the
+// Prisma client has not been generated yet (e.g. in CI without a live DB).
+// ---------------------------------------------------------------------------
+
+type PrismaWorkOrderRow = {
+  id: string;
+  title: string;
+  description: string;
+  laborCents: number;
+  partsCents: number;
+  closedAt: Date | null;
+};
+
+type PrismaVehicleRow = {
+  id: string;
+  make: string;
+  model: string;
+  year: number;
+  color: string | null;
+  plate: string | null;
+  mileageIn: number | null;
+  oilType: string | null;
+  tireSize: string | null;
+  workOrders: PrismaWorkOrderRow[];
+};
+
+type PrismaWarrantyRow = {
+  id: string;
+  partName: string;
+  partNumber: string | null;
+  supplier: string | null;
+  installedAt: Date;
+  warrantyMonths: number;
+  expiresAt: Date;
+};
+
 async function fetchGloveboxData(
   clientId: string,
 ): Promise<GloveboxData | null> {
@@ -94,8 +132,7 @@ async function fetchGloveboxData(
 
     if (!client) return null;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const vehicles: GloveboxVehicle[] = (client.vehicles as any[]).map((v) => ({
+    const vehicles: GloveboxVehicle[] = (client.vehicles as PrismaVehicleRow[]).map((v) => ({
       id: v.id,
       make: v.make,
       model: v.model,
@@ -105,8 +142,7 @@ async function fetchGloveboxData(
       mileageIn: v.mileageIn,
       oilType: v.oilType,
       tireSize: v.tireSize,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      workOrders: (v.workOrders as any[]).map((wo) => ({
+      workOrders: (v.workOrders as PrismaWorkOrderRow[]).map((wo) => ({
         id: wo.id,
         title: wo.title,
         description: wo.description,
@@ -131,8 +167,7 @@ async function fetchGloveboxData(
           expiresAt: true,
         },
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      warranties = (rawWarranties as any[]).map((w) => ({
+      warranties = (rawWarranties as PrismaWarrantyRow[]).map((w) => ({
         id: w.id,
         partName: w.partName,
         partNumber: w.partNumber,

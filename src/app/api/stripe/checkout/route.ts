@@ -83,20 +83,18 @@ export async function POST(req: NextRequest) {
   // --- Determine payment methods -------------------------------------------
   // Always include card. Add Affirm and Klarna when the total exceeds $500
   // (the BNPL threshold) — these require the billing address from the customer.
-  const paymentMethodTypes: string[] = ["card"];
+  const paymentMethodTypes: Stripe.Checkout.SessionCreateParams.PaymentMethodType[] =
+    ["card"];
   if (totalCents >= BNPL_THRESHOLD_CENTS) {
     paymentMethodTypes.push("affirm", "klarna");
   }
 
   // --- Create Stripe Checkout session -------------------------------------
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let session: any;
+  let session: Stripe.Checkout.Session;
   try {
     session = await stripe.checkout.sessions.create({
       mode: "payment",
-      // payment_method_types accepts an array of strings.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      payment_method_types: paymentMethodTypes as any,
+      payment_method_types: paymentMethodTypes,
       customer: workOrder.tenant.stripeCustomerId ?? undefined,
       line_items: [
         {
