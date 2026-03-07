@@ -65,26 +65,35 @@ const WMI_MAKE_MAP: Record<string, string> = {
   "1LN": "Lincoln",
 };
 
-const MODEL_YEAR_MAP: Record<string, number> = {
-  A: 1980, B: 1981, C: 1982, D: 1983, E: 1984, F: 1985, G: 1986,
-  H: 1987, J: 1988, K: 1989, L: 1990, M: 1991, N: 1992, P: 1993,
-  R: 1994, S: 1995, T: 1996, V: 1997, W: 1998, X: 1999, Y: 2000,
-  "1": 2001, "2": 2002, "3": 2003, "4": 2004, "5": 2005, "6": 2006,
-  "7": 2007, "8": 2008, "9": 2009, A2: 2010, B2: 2011, C2: 2012,
-  D2: 2013, E2: 2014, F2: 2015, G2: 2016, H2: 2017, J2: 2018,
-  K2: 2019, L2: 2020, M2: 2021, N2: 2022, P2: 2023, R2: 2024,
-  S2: 2025,
-};
+// VIN position 10 encodes the model year using a 30-character cycle that
+// started in 1980. The same character maps to two possible years 30 years
+// apart (e.g. 'A' → 1980 or 2010). We return the most recent year that is
+// not in the future.
+//
+// Cycle order (I, O, Q, U, Z not used):
+//   A B C D E F G H J K L M N P R S T V W X Y 1 2 3 4 5 6 7 8 9
+//   (29 unique positions, repeating every 30 model years)
+const YEAR_CYCLE = [
+  "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N",
+  "P", "R", "S", "T", "V", "W", "X", "Y",
+  "1", "2", "3", "4", "5", "6", "7", "8", "9",
+] as const;
 
-// Simple year decode from VIN position 10 (index 9), which repeats the
-// alphabet/digit cycle every 30 model years. We anchor to the modern cycle
-// (2010+ suffix "2" disambiguation is handled below).
 function decodeModelYear(vin: string): number {
   const ch = vin[9].toUpperCase();
-  const year = MODEL_YEAR_MAP[ch];
-  if (year) return year;
-  // Fallback: treat unknown characters as current year minus one
-  return new Date().getFullYear() - 1;
+  const idx = YEAR_CYCLE.indexOf(ch as (typeof YEAR_CYCLE)[number]);
+  if (idx === -1) {
+    // Fallback for unrecognised characters
+    return new Date().getFullYear() - 1;
+  }
+  // Base of the cycle starting in 1980; offset by how many 30-year periods
+  // place the result closest to (but not exceeding) the current year.
+  const currentYear = new Date().getFullYear();
+  let year = 1980 + idx;
+  while (year + 30 <= currentYear) {
+    year += 30;
+  }
+  return year;
 }
 
 function deduceMake(vin: string): string {
@@ -320,6 +329,12 @@ export interface TenantVehicleResult {
 export async function createTenantVehicle(
   input: CreateTenantVehicleInput,
 ): Promise<TenantVehicleResult | DecodeVinError> {
+  // Validate VIN: must be non-empty and 17 characters when provided
+  const vin = input.vin.trim();
+  if (vin && vin.length !== 17) {
+    return { error: "VIN must be exactly 17 characters." };
+  }
+
   const adminDb = createAdminClient();
 
   const { data, error } = await adminDb
@@ -328,10 +343,10 @@ export async function createTenantVehicle(
       tenant_id: input.tenantId,
       client_id: input.clientId,
       global_vehicle_id: input.globalVehicleId,
-      vin: input.vin || null,
-      license_plate: input.licensePlate || null,
+      vin: vin || null,
+      license_plate: input.licensePlate?.trim() || null,
       mileage: input.mileage ?? null,
-      color: input.color || null,
+      color: input.color?.trim() || null,
     })
     .select("id, tenant_id, client_id, global_vehicle_id")
     .single();

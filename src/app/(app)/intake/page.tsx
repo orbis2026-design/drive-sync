@@ -204,7 +204,10 @@ function BottomSheet({ result, vin, onClose }: BottomSheetProps) {
     setSaving(true);
     setSaveError(null);
 
-    // Hard-coded placeholder tenantId — in production this comes from auth session
+    // TODO: replace with tenantId from the authenticated session (e.g. via
+    // next-auth / Supabase Auth) before deploying to production.
+    // Hard-coding a placeholder ID here is intentional for the prototype stage
+    // and MUST NOT reach a production database with RLS enabled.
     const res = await createTenantVehicle({
       tenantId: "00000000-0000-0000-0000-000000000001",
       clientId: clientId.trim(),
@@ -293,8 +296,11 @@ function BottomSheet({ result, vin, onClose }: BottomSheetProps) {
               Maintenance Blueprint
             </h3>
             <ul className="space-y-2">
-              {globalVehicle.maintenance_schedule_json.map((item, i) => (
-                <ScheduleItem key={i} item={item} />
+              {globalVehicle.maintenance_schedule_json.map((item) => (
+                <ScheduleItem
+                  key={`${item.task}-${item.interval_miles}`}
+                  item={item}
+                />
               ))}
             </ul>
           </section>
