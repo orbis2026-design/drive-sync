@@ -8,7 +8,7 @@
 -- detect and reject stale offline writes on legally approved contracts.
 -- ---------------------------------------------------------------------------
 alter table work_orders
-  add column if not exists version_hash uuid    not null default uuid_generate_v4(),
+  add column if not exists version_hash uuid    not null default gen_random_uuid(),
   add column if not exists is_locked    boolean not null default false;
 
 comment on column work_orders.version_hash is
@@ -23,7 +23,7 @@ comment on column work_orders.is_locked is
 create or replace function rotate_work_order_version()
 returns trigger language plpgsql as $$
 begin
-  new.version_hash := uuid_generate_v4();
+  new.version_hash := gen_random_uuid();
   -- Lock the work order once it reaches a legally approved state.
   if new.status in ('COMPLETE', 'INVOICED', 'PAID') then
     new.is_locked := true;

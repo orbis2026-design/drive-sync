@@ -32,7 +32,7 @@ end $$;
 --    Each row represents one personalized message ready for Twilio dispatch.
 -- ---------------------------------------------------------------------------
 create table if not exists outbound_campaigns (
-  id                uuid                      primary key default uuid_generate_v4(),
+  id                uuid                      primary key default gen_random_uuid(),
   tenant_id         uuid                      not null references tenants (id) on delete cascade,
   tenant_vehicle_id uuid                      not null references tenant_vehicles (id) on delete cascade,
   client_id         uuid                      not null references clients (id) on delete cascade,
