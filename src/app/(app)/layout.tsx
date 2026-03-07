@@ -8,7 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 const DEMO_TENANT_ID = process.env.DEMO_TENANT_ID ?? "";
 
-/** Paths that are always accessible, even when the subscription is past due. */
+/** Path that is always accessible, even when the subscription is past due. */
 const BILLING_PATH = "/settings/billing";
 
 async function getSubscriptionStatus(): Promise<string | null> {
@@ -31,11 +31,12 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Read the current pathname from headers (set by Next.js middleware / server)
+  // Next.js middleware injects the x-pathname header on every request.
+  // We use it here to detect if the user is already on the billing page.
   const headersList = await headers();
   const pathname = headersList.get("x-pathname") ?? "";
 
-  // Only enforce the guard when the tenant's account is past due.
+  // Allow the billing page to always render (prevents redirect loop).
   if (!pathname.startsWith(BILLING_PATH)) {
     const status = await getSubscriptionStatus();
 

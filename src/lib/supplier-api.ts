@@ -34,7 +34,7 @@ export interface SupplierPart {
   category: string;
   subcategory: string;
   wholesalePriceCents: number;
-  /** Retail price at a 40 % gross-margin mark-up. */
+  /** Retail price at a 40% gross-margin mark-up. */
   retailPriceCents: number;
   etaMinutes: number;
   inStock: boolean;

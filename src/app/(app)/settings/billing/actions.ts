@@ -96,8 +96,18 @@ export async function getSubscriptionDetails(): Promise<SubscriptionDetails> {
       return "NONE";
     };
 
-    // billing_cycle_anchor gives the next renewal as a Unix timestamp
-    const nextBillingAt = sub?.billing_cycle_anchor ?? null;
+    // Fetch upcoming invoice to get the next billing date
+    let nextBillingAt: number | null = null;
+    if (sub && sub.status === "active") {
+      try {
+        const upcoming = await stripe.invoices.createPreview({
+          customer: tenant.stripe_customer_id,
+        });
+        nextBillingAt = upcoming.next_payment_attempt ?? null;
+      } catch {
+        // No upcoming invoice (e.g. subscription is canceled)
+      }
+    }
 
     return {
       subscriptionStatus: sub ? mapStatus(sub.status) : "NONE",
