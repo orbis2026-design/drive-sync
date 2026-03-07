@@ -74,7 +74,6 @@ ALTER TABLE tenants          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clients          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenant_vehicles  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE work_orders      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE outbound_campaigns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE consumables      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE expenses         ENABLE ROW LEVEL SECURITY;
@@ -148,18 +147,7 @@ CREATE POLICY "work_orders_tenant_isolation"
   WITH CHECK (tenant_id = current_tenant_id());
 
 -- ---------------------------------------------------------------------------
--- 10. outbound_campaigns
--- ---------------------------------------------------------------------------
-
-DROP POLICY IF EXISTS "outbound_campaigns_tenant_isolation" ON outbound_campaigns;
-
-CREATE POLICY "outbound_campaigns_tenant_isolation"
-  ON outbound_campaigns FOR ALL
-  USING  (tenant_id = current_tenant_id())
-  WITH CHECK (tenant_id = current_tenant_id());
-
--- ---------------------------------------------------------------------------
--- 11. consumables
+-- 10. consumables
 -- ---------------------------------------------------------------------------
 
 DROP POLICY IF EXISTS "consumables_tenant_isolation" ON consumables;
@@ -170,7 +158,7 @@ CREATE POLICY "consumables_tenant_isolation"
   WITH CHECK (tenant_id = current_tenant_id());
 
 -- ---------------------------------------------------------------------------
--- 12. messages
+-- 11. messages
 -- ---------------------------------------------------------------------------
 
 DROP POLICY IF EXISTS "messages_tenant_isolation" ON messages;
@@ -181,7 +169,7 @@ CREATE POLICY "messages_tenant_isolation"
   WITH CHECK (tenant_id = current_tenant_id());
 
 -- ---------------------------------------------------------------------------
--- 13. expenses
+-- 12. expenses
 -- ---------------------------------------------------------------------------
 
 DROP POLICY IF EXISTS "expenses_tenant_isolation" ON expenses;
@@ -192,7 +180,7 @@ CREATE POLICY "expenses_tenant_isolation"
   WITH CHECK (tenant_id = current_tenant_id());
 
 -- ---------------------------------------------------------------------------
--- 14. global_vehicles — read-only for all authenticated users;
+-- 13. global_vehicles — read-only for all authenticated users;
 --     INSERT/UPDATE/DELETE restricted to service role only.
 -- ---------------------------------------------------------------------------
 
@@ -213,7 +201,7 @@ CREATE POLICY "global_vehicles_write_service_role"
   WITH CHECK (auth.role() = 'service_role');
 
 -- ---------------------------------------------------------------------------
--- 15. user_passkeys — each user can only manage their own credentials
+-- 14. user_passkeys — each user can only manage their own credentials
 -- ---------------------------------------------------------------------------
 
 DROP POLICY IF EXISTS "user_passkeys_own" ON user_passkeys;
@@ -224,7 +212,7 @@ CREATE POLICY "user_passkeys_own"
   WITH CHECK (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
--- 16. Service-role bypass comment
+-- 15. Service-role bypass comment
 --
 --     The admin Supabase client (created with SUPABASE_SERVICE_ROLE_KEY) already
 --     bypasses RLS by default. No additional policies are needed for server-side
