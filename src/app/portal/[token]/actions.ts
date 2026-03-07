@@ -38,7 +38,7 @@ export interface PortalData {
   status: string;
   laborCents: number;
   partsCents: number;
-  /** Tax computed at the same rate as the Quote Builder (8.75 %). */
+  /** Tax computed at the same rate as the Quote Builder (TAX_RATE). */
   taxCents: number;
   /** Grand total including tax. */
   totalCents: number;
@@ -61,6 +61,17 @@ export interface PortalData {
 // Private helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Casts an unknown Supabase row value to a plain object record so that
+ * JSON columns can be accessed without TypeScript `any`.
+ */
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
 /** Reads `parts_json` from the Supabase work_orders row; returns [] on any failure. */
 async function fetchPartsJson(workOrderId: string): Promise<SelectedPart[]> {
   try {
@@ -71,8 +82,9 @@ async function fetchPartsJson(workOrderId: string): Promise<SelectedPart[]> {
       .eq("id", workOrderId)
       .single();
 
-    if (data && Array.isArray((data as Record<string, unknown>).parts_json)) {
-      return (data as Record<string, unknown>).parts_json as SelectedPart[];
+    const row = asRecord(data);
+    if (row && Array.isArray(row.parts_json)) {
+      return row.parts_json as SelectedPart[];
     }
   } catch {
     // Supabase unavailable — return empty array.
@@ -90,7 +102,7 @@ async function fetchInspectionJson(workOrderId: string): Promise<MpiData | null>
       .eq("id", workOrderId)
       .single();
 
-    const raw = (data as Record<string, unknown> | null)?.inspection_json;
+    const raw = asRecord(data)?.inspection_json;
     if (raw && typeof raw === "object") {
       return raw as MpiData;
     }

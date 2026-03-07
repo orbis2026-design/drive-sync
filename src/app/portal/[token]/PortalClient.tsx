@@ -205,10 +205,17 @@ const CONFETTI_COLORS = [
   "#22c55e", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4",
 ];
 
+/** Total number of confetti particles to render. */
+const CONFETTI_COUNT = 40;
+/** Controls how much horizontal wave variation confetti has (degrees). */
+const CONFETTI_WAVE_FREQUENCY = 2.3;
+/** Width of the horizontal spread band in percent of viewport. */
+const CONFETTI_WAVE_AMPLITUDE = 10;
+
 function ConfettiShower() {
-  const pieces = Array.from({ length: 40 }, (_, i) => ({
+  const pieces = Array.from({ length: CONFETTI_COUNT }, (_, i) => ({
     id: i,
-    x: (i / 40) * 100 + (Math.sin(i * 2.3) * 10),
+    x: (i / CONFETTI_COUNT) * 100 + (Math.sin(i * CONFETTI_WAVE_FREQUENCY) * CONFETTI_WAVE_AMPLITUDE),
     color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
     delay: (i * 0.06).toFixed(2),
     size: 6 + (i % 5) * 2,
