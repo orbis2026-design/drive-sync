@@ -71,3 +71,16 @@ create index if not exists idx_outbound_campaigns_tenant_vehicle_id
 create trigger trg_outbound_campaigns_updated_at
   before update on outbound_campaigns
   for each row execute function set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- 4. Row-Level Security
+--    Tenant isolation: each row is visible only to the owning tenant.
+-- ---------------------------------------------------------------------------
+alter table outbound_campaigns enable row level security;
+
+drop policy if exists "outbound_campaigns_tenant_isolation" on outbound_campaigns;
+
+create policy "outbound_campaigns_tenant_isolation"
+  on outbound_campaigns for all
+  using  (tenant_id = current_tenant_id())
+  with check (tenant_id = current_tenant_id());
