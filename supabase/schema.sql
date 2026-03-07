@@ -319,6 +319,7 @@ create table if not exists work_orders (
   mileage_at_intake       integer           check (mileage_at_intake >= 0),
   labor_cents             integer           not null default 0 check (labor_cents >= 0),
   parts_cents             integer           not null default 0 check (parts_cents >= 0),
+  parts_cost_cents        integer           check (parts_cost_cents >= 0),
   scheduled_at            timestamptz,
   intake_photo_url        text,
   inspection_json         jsonb,
@@ -344,6 +345,9 @@ create table if not exists work_orders (
 
 comment on table work_orders is
   'Operational job records linked to a tenant_vehicle.';
+comment on column work_orders.parts_cost_cents is
+  'Wholesale (COGS) cost of parts in cents. When NULL the analytics engine
+   assumes a 55% cost ratio against parts_cents for gross-margin reporting.';
 comment on column work_orders.scheduled_at is
   'Calendar appointment timestamp. NULL = unscheduled / backlog.';
 comment on column work_orders.intake_photo_url is

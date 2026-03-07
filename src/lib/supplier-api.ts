@@ -39,6 +39,15 @@ export interface SupplierPart {
   etaMinutes: number;
   inStock: boolean;
   warehouseQty: number;
+  /** Supplier source name (e.g. "AutoZone", "Worldpac"). */
+  source: string;
+  /** Direct URL to the part on the supplier's website for reference. */
+  sourceUrl: string;
+  /**
+   * SAME_DAY: ETA ≤ 120 minutes (local warehouse stock ready today).
+   * ORDER_ONLY: ETA > 120 minutes (requires supplier back-order or transfer).
+   */
+  availabilityType: "SAME_DAY" | "ORDER_ONLY";
   fitment: {
     yearStart: number;
     yearEnd: number;
@@ -143,6 +152,8 @@ interface MockEntry {
   warehouseQty: number;
   category: string;
   subcategory: string;
+  /** Supplier source name. */
+  source: "AutoZone" | "Worldpac";
 }
 
 const MOCK_CATALOGUE: MockEntry[] = [
@@ -156,6 +167,7 @@ const MOCK_CATALOGUE: MockEntry[] = [
     wholesalePriceCents: 6200,
     etaMinutes: 45,
     warehouseQty: 8,
+    source: "AutoZone",
   },
   {
     partNumber: "NP-BR-CER-FRONT-1",
@@ -166,6 +178,7 @@ const MOCK_CATALOGUE: MockEntry[] = [
     wholesalePriceCents: 9800,
     etaMinutes: 90,
     warehouseQty: 3,
+    source: "Worldpac",
   },
   // Brakes — Pads
   {
@@ -177,6 +190,7 @@ const MOCK_CATALOGUE: MockEntry[] = [
     wholesalePriceCents: 5400,
     etaMinutes: 45,
     warehouseQty: 12,
+    source: "AutoZone",
   },
   {
     partNumber: "NP-BP-SEM-FRONT-1",
@@ -187,6 +201,7 @@ const MOCK_CATALOGUE: MockEntry[] = [
     wholesalePriceCents: 3800,
     etaMinutes: 30,
     warehouseQty: 20,
+    source: "AutoZone",
   },
   // Engine — Filters
   {
@@ -198,6 +213,7 @@ const MOCK_CATALOGUE: MockEntry[] = [
     wholesalePriceCents: 1100,
     etaMinutes: 25,
     warehouseQty: 50,
+    source: "AutoZone",
   },
   {
     partNumber: "NP-EF-AIR-1",
@@ -208,6 +224,7 @@ const MOCK_CATALOGUE: MockEntry[] = [
     wholesalePriceCents: 2400,
     etaMinutes: 25,
     warehouseQty: 18,
+    source: "AutoZone",
   },
   // Engine — Ignition
   {
@@ -219,6 +236,7 @@ const MOCK_CATALOGUE: MockEntry[] = [
     wholesalePriceCents: 4800,
     etaMinutes: 30,
     warehouseQty: 10,
+    source: "Worldpac",
   },
   {
     partNumber: "NP-IG-COIL-1",
@@ -229,6 +247,7 @@ const MOCK_CATALOGUE: MockEntry[] = [
     wholesalePriceCents: 8900,
     etaMinutes: 60,
     warehouseQty: 5,
+    source: "Worldpac",
   },
   // Suspension — Shocks
   {
@@ -238,8 +257,9 @@ const MOCK_CATALOGUE: MockEntry[] = [
     category: "Suspension",
     subcategory: "Shocks & Struts",
     wholesalePriceCents: 7200,
-    etaMinutes: 120,
+    etaMinutes: 180,
     warehouseQty: 4,
+    source: "Worldpac",
   },
   // Steering — Tie Rods
   {
@@ -251,6 +271,7 @@ const MOCK_CATALOGUE: MockEntry[] = [
     wholesalePriceCents: 3400,
     etaMinutes: 45,
     warehouseQty: 7,
+    source: "AutoZone",
   },
   // Electrical — Sensors
   {
@@ -262,6 +283,7 @@ const MOCK_CATALOGUE: MockEntry[] = [
     wholesalePriceCents: 6100,
     etaMinutes: 60,
     warehouseQty: 6,
+    source: "Worldpac",
   },
   {
     partNumber: "NP-EL-MAF-1",
@@ -270,8 +292,9 @@ const MOCK_CATALOGUE: MockEntry[] = [
     category: "Electrical",
     subcategory: "Sensors",
     wholesalePriceCents: 9200,
-    etaMinutes: 60,
+    etaMinutes: 240,
     warehouseQty: 3,
+    source: "Worldpac",
   },
   // Cooling
   {
@@ -283,6 +306,7 @@ const MOCK_CATALOGUE: MockEntry[] = [
     wholesalePriceCents: 8400,
     etaMinutes: 90,
     warehouseQty: 5,
+    source: "Worldpac",
   },
   {
     partNumber: "NP-CL-TH-1",
@@ -293,6 +317,7 @@ const MOCK_CATALOGUE: MockEntry[] = [
     wholesalePriceCents: 3200,
     etaMinutes: 45,
     warehouseQty: 9,
+    source: "AutoZone",
   },
 ];
 
@@ -351,24 +376,36 @@ export async function searchParts(
   // Default: return everything in the category when no subcategory filter.
   if (!category && !subcategory && !query) results = MOCK_CATALOGUE;
 
-  return results.map((e) => ({
-    partNumber: e.partNumber,
-    name: e.name,
-    brand: e.brand,
-    category: e.category,
-    subcategory: e.subcategory,
-    wholesalePriceCents: e.wholesalePriceCents,
-    retailPriceCents: toRetailCents(e.wholesalePriceCents),
-    etaMinutes: e.etaMinutes,
-    inStock: e.warehouseQty > 0,
-    warehouseQty: e.warehouseQty,
-    fitment: {
-      yearStart: 2015,
-      yearEnd: 2026,
-      makes: ["Toyota", "Honda", "Ford", "Chevrolet", "BMW", "Nissan"],
-      models: [],
-    },
-  }));
+  return results.map((e) => {
+    const availabilityType: "SAME_DAY" | "ORDER_ONLY" =
+      e.etaMinutes <= 120 ? "SAME_DAY" : "ORDER_ONLY";
+    // In production these would be real deep-link URLs from the supplier API.
+    const sourceUrl =
+      e.source === "AutoZone"
+        ? `https://www.autozone.com/search?q=${encodeURIComponent(e.partNumber)}`
+        : `https://www.worldpac.com/search?q=${encodeURIComponent(e.partNumber)}`;
+    return {
+      partNumber: e.partNumber,
+      name: e.name,
+      brand: e.brand,
+      category: e.category,
+      subcategory: e.subcategory,
+      wholesalePriceCents: e.wholesalePriceCents,
+      retailPriceCents: toRetailCents(e.wholesalePriceCents),
+      etaMinutes: e.etaMinutes,
+      inStock: e.warehouseQty > 0,
+      warehouseQty: e.warehouseQty,
+      source: e.source,
+      sourceUrl,
+      availabilityType,
+      fitment: {
+        yearStart: 1990,
+        yearEnd: 2026,
+        makes: ["Toyota", "Honda", "Ford", "Chevrolet", "BMW", "Nissan"],
+        models: [],
+      },
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------

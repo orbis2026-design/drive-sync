@@ -318,6 +318,7 @@ CREATE TABLE IF NOT EXISTS work_orders (
   mileage_at_intake       INTEGER           CHECK (mileage_at_intake >= 0),
   labor_cents             INTEGER           NOT NULL DEFAULT 0 CHECK (labor_cents >= 0),
   parts_cents             INTEGER           NOT NULL DEFAULT 0 CHECK (parts_cents >= 0),
+  parts_cost_cents        INTEGER           CHECK (parts_cost_cents >= 0),
   scheduled_at            TIMESTAMPTZ,
   intake_photo_url        TEXT,
   inspection_json         JSONB,
@@ -343,6 +344,9 @@ CREATE TABLE IF NOT EXISTS work_orders (
 
 COMMENT ON TABLE work_orders IS
   'Operational job records linked to a tenant_vehicle.';
+COMMENT ON COLUMN work_orders.parts_cost_cents IS
+  'Wholesale (COGS) cost of parts in cents. When NULL the analytics engine
+   assumes a 55% cost ratio against parts_cents for gross-margin reporting.';
 COMMENT ON COLUMN work_orders.scheduled_at IS
   'Calendar appointment timestamp. NULL = unscheduled / backlog.';
 COMMENT ON COLUMN work_orders.intake_photo_url IS

@@ -7,9 +7,8 @@ import {
   type QuoteData,
   type SelectedPart,
   type QuoteCalculation,
-  type DueService,
-  formatMilesUntilDue,
 } from "./actions";
+import { type DueService, formatMilesUntilDue } from "@/lib/predictive-service";
 
 import { TAX_RATE } from "./constants";
 

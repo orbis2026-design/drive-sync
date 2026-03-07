@@ -9,6 +9,9 @@
  *   - Environmental / hazardous-waste fee (flat dollar amount)
  *   - Environmental fee percentage (applied to parts subtotal)
  *
+ * Also provides a US state auto-detect preset lookup so shops can quickly
+ * populate their jurisdiction's defaults (labor rate, parts tax, env fee).
+ *
  * The mechanic's choices are stored in `tenants.tax_matrix_json` and consumed
  * by the math-engine.ts utility during quote generation.
  */
@@ -20,6 +23,76 @@ import {
   type TaxMatrix,
 } from "@/lib/math-engine";
 import { saveTaxMatrix } from "./actions";
+
+// ---------------------------------------------------------------------------
+// US state tax presets
+// Auto-repair sales tax data sourced from state revenue codes.
+// labor_tax_rate: labor is non-taxable in most US states (0.00).
+// parts_tax_rate: parts/materials sales tax rate.
+// environmental_fee_flat: typical hazardous-waste disposal fee (USD).
+// ---------------------------------------------------------------------------
+
+interface StatePreset {
+  name: string;
+  abbr: string;
+  labor_tax_rate: number;
+  parts_tax_rate: number;
+  environmental_fee_flat: number;
+  environmental_fee_percentage: number;
+}
+
+const STATE_PRESETS: StatePreset[] = [
+  { name: "Alabama",        abbr: "AL", labor_tax_rate: 0.00, parts_tax_rate: 0.04,   environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Alaska",         abbr: "AK", labor_tax_rate: 0.00, parts_tax_rate: 0.00,   environmental_fee_flat: 0.00, environmental_fee_percentage: 0.00 },
+  { name: "Arizona",        abbr: "AZ", labor_tax_rate: 0.00, parts_tax_rate: 0.056,  environmental_fee_flat: 4.00, environmental_fee_percentage: 0.00 },
+  { name: "Arkansas",       abbr: "AR", labor_tax_rate: 0.00, parts_tax_rate: 0.065,  environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "California",     abbr: "CA", labor_tax_rate: 0.00, parts_tax_rate: 0.0725, environmental_fee_flat: 5.00, environmental_fee_percentage: 0.00 },
+  { name: "Colorado",       abbr: "CO", labor_tax_rate: 0.00, parts_tax_rate: 0.029,  environmental_fee_flat: 4.00, environmental_fee_percentage: 0.00 },
+  { name: "Connecticut",    abbr: "CT", labor_tax_rate: 0.0635, parts_tax_rate: 0.0635, environmental_fee_flat: 5.00, environmental_fee_percentage: 0.00 },
+  { name: "Delaware",       abbr: "DE", labor_tax_rate: 0.00, parts_tax_rate: 0.00,   environmental_fee_flat: 0.00, environmental_fee_percentage: 0.00 },
+  { name: "Florida",        abbr: "FL", labor_tax_rate: 0.00, parts_tax_rate: 0.06,   environmental_fee_flat: 5.00, environmental_fee_percentage: 0.00 },
+  { name: "Georgia",        abbr: "GA", labor_tax_rate: 0.00, parts_tax_rate: 0.04,   environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Hawaii",         abbr: "HI", labor_tax_rate: 0.04, parts_tax_rate: 0.04,   environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Idaho",          abbr: "ID", labor_tax_rate: 0.00, parts_tax_rate: 0.06,   environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Illinois",       abbr: "IL", labor_tax_rate: 0.00, parts_tax_rate: 0.0625, environmental_fee_flat: 5.00, environmental_fee_percentage: 0.00 },
+  { name: "Indiana",        abbr: "IN", labor_tax_rate: 0.00, parts_tax_rate: 0.07,   environmental_fee_flat: 4.00, environmental_fee_percentage: 0.00 },
+  { name: "Iowa",           abbr: "IA", labor_tax_rate: 0.06, parts_tax_rate: 0.06,   environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Kansas",         abbr: "KS", labor_tax_rate: 0.065, parts_tax_rate: 0.065, environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Kentucky",       abbr: "KY", labor_tax_rate: 0.06, parts_tax_rate: 0.06,   environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Louisiana",      abbr: "LA", labor_tax_rate: 0.00, parts_tax_rate: 0.0445, environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Maine",          abbr: "ME", labor_tax_rate: 0.055, parts_tax_rate: 0.055, environmental_fee_flat: 4.00, environmental_fee_percentage: 0.00 },
+  { name: "Maryland",       abbr: "MD", labor_tax_rate: 0.00, parts_tax_rate: 0.06,   environmental_fee_flat: 4.00, environmental_fee_percentage: 0.00 },
+  { name: "Massachusetts",  abbr: "MA", labor_tax_rate: 0.00, parts_tax_rate: 0.0625, environmental_fee_flat: 5.00, environmental_fee_percentage: 0.00 },
+  { name: "Michigan",       abbr: "MI", labor_tax_rate: 0.00, parts_tax_rate: 0.06,   environmental_fee_flat: 4.00, environmental_fee_percentage: 0.00 },
+  { name: "Minnesota",      abbr: "MN", labor_tax_rate: 0.065, parts_tax_rate: 0.065, environmental_fee_flat: 5.00, environmental_fee_percentage: 0.00 },
+  { name: "Mississippi",    abbr: "MS", labor_tax_rate: 0.07, parts_tax_rate: 0.07,   environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Missouri",       abbr: "MO", labor_tax_rate: 0.00, parts_tax_rate: 0.04225, environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Montana",        abbr: "MT", labor_tax_rate: 0.00, parts_tax_rate: 0.00,   environmental_fee_flat: 0.00, environmental_fee_percentage: 0.00 },
+  { name: "Nebraska",       abbr: "NE", labor_tax_rate: 0.055, parts_tax_rate: 0.055, environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Nevada",         abbr: "NV", labor_tax_rate: 0.00, parts_tax_rate: 0.0685, environmental_fee_flat: 4.00, environmental_fee_percentage: 0.00 },
+  { name: "New Hampshire",  abbr: "NH", labor_tax_rate: 0.00, parts_tax_rate: 0.00,   environmental_fee_flat: 0.00, environmental_fee_percentage: 0.00 },
+  { name: "New Jersey",     abbr: "NJ", labor_tax_rate: 0.00, parts_tax_rate: 0.06625, environmental_fee_flat: 5.00, environmental_fee_percentage: 0.00 },
+  { name: "New Mexico",     abbr: "NM", labor_tax_rate: 0.05125, parts_tax_rate: 0.05125, environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "New York",       abbr: "NY", labor_tax_rate: 0.00, parts_tax_rate: 0.04,   environmental_fee_flat: 5.00, environmental_fee_percentage: 0.00 },
+  { name: "North Carolina", abbr: "NC", labor_tax_rate: 0.00, parts_tax_rate: 0.0475, environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "North Dakota",   abbr: "ND", labor_tax_rate: 0.00, parts_tax_rate: 0.05,   environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Ohio",           abbr: "OH", labor_tax_rate: 0.00, parts_tax_rate: 0.0575, environmental_fee_flat: 4.00, environmental_fee_percentage: 0.00 },
+  { name: "Oklahoma",       abbr: "OK", labor_tax_rate: 0.00, parts_tax_rate: 0.045,  environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Oregon",         abbr: "OR", labor_tax_rate: 0.00, parts_tax_rate: 0.00,   environmental_fee_flat: 0.00, environmental_fee_percentage: 0.00 },
+  { name: "Pennsylvania",   abbr: "PA", labor_tax_rate: 0.00, parts_tax_rate: 0.06,   environmental_fee_flat: 4.00, environmental_fee_percentage: 0.00 },
+  { name: "Rhode Island",   abbr: "RI", labor_tax_rate: 0.00, parts_tax_rate: 0.07,   environmental_fee_flat: 4.00, environmental_fee_percentage: 0.00 },
+  { name: "South Carolina", abbr: "SC", labor_tax_rate: 0.00, parts_tax_rate: 0.06,   environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "South Dakota",   abbr: "SD", labor_tax_rate: 0.045, parts_tax_rate: 0.045, environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Tennessee",      abbr: "TN", labor_tax_rate: 0.00, parts_tax_rate: 0.07,   environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Texas",          abbr: "TX", labor_tax_rate: 0.0625, parts_tax_rate: 0.0625, environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Utah",           abbr: "UT", labor_tax_rate: 0.00, parts_tax_rate: 0.0485, environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Vermont",        abbr: "VT", labor_tax_rate: 0.00, parts_tax_rate: 0.06,   environmental_fee_flat: 4.00, environmental_fee_percentage: 0.00 },
+  { name: "Virginia",       abbr: "VA", labor_tax_rate: 0.00, parts_tax_rate: 0.053,  environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Washington",     abbr: "WA", labor_tax_rate: 0.065, parts_tax_rate: 0.065, environmental_fee_flat: 5.00, environmental_fee_percentage: 0.00 },
+  { name: "West Virginia",  abbr: "WV", labor_tax_rate: 0.00, parts_tax_rate: 0.06,   environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+  { name: "Wisconsin",      abbr: "WI", labor_tax_rate: 0.00, parts_tax_rate: 0.05,   environmental_fee_flat: 4.00, environmental_fee_percentage: 0.00 },
+  { name: "Wyoming",        abbr: "WY", labor_tax_rate: 0.00, parts_tax_rate: 0.04,   environmental_fee_flat: 3.00, environmental_fee_percentage: 0.00 },
+];
 
 // ---------------------------------------------------------------------------
 // Client UI
@@ -43,9 +116,25 @@ function parseDollar(value: string): number {
 
 export default function TaxSettingsPage() {
   const [matrix, setMatrix] = useState<TaxMatrix>({ ...DEFAULT_TAX_MATRIX });
+  const [selectedState, setSelectedState] = useState<string>("");
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  function handleStatePreset(abbr: string) {
+    setSelectedState(abbr);
+    if (!abbr) return;
+    const preset = STATE_PRESETS.find((s) => s.abbr === abbr);
+    if (!preset) return;
+    setSaved(false);
+    setError(null);
+    setMatrix({
+      labor_tax_rate: preset.labor_tax_rate,
+      parts_tax_rate: preset.parts_tax_rate,
+      environmental_fee_flat: preset.environmental_fee_flat,
+      environmental_fee_percentage: preset.environmental_fee_percentage,
+    });
+  }
 
   function handleChange(field: keyof TaxMatrix, raw: string) {
     setSaved(false);
@@ -102,6 +191,37 @@ export default function TaxSettingsPage() {
 
       {/* Form */}
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* State auto-detect preset */}
+        <div className="bg-gray-900 border border-amber-800/50 rounded-2xl p-5">
+          <label
+            htmlFor="state_preset"
+            className="block text-sm font-semibold text-white mb-1"
+          >
+            Auto-Detect by State
+            <span className="ml-2 text-xs text-gray-500 font-normal">
+              pre-fills rates for your jurisdiction
+            </span>
+          </label>
+          <select
+            id="state_preset"
+            value={selectedState}
+            onChange={(e) => handleStatePreset(e.target.value)}
+            className="w-full rounded-lg bg-gray-800 border border-gray-700 text-white px-3 py-2 text-sm focus:outline-none focus:border-brand-400"
+          >
+            <option value="">— Select your state —</option>
+            {STATE_PRESETS.map((s) => (
+              <option key={s.abbr} value={s.abbr}>
+                {s.name} ({s.abbr})
+              </option>
+            ))}
+          </select>
+          {selectedState && (
+            <p className="text-xs text-amber-400 mt-2">
+              ✓ Preset loaded for {STATE_PRESETS.find((s) => s.abbr === selectedState)?.name}. Review and save below.
+            </p>
+          )}
+        </div>
+
         {/* Labor tax rate */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
           <label

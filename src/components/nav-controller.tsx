@@ -278,12 +278,18 @@ export function NavController({ role }: NavControllerProps) {
     >
       {/* Brand mark */}
       <div className="hidden sm:flex sm:items-center sm:justify-center sm:h-16 sm:border-b sm:border-gray-700 lg:justify-start lg:px-4">
-        <span className="text-yellow-400 font-bold text-lg tracking-tight lg:text-xl">
-          DS
-        </span>
-        <span className="hidden lg:inline ml-2 text-white font-semibold text-lg tracking-tight">
-          DriveSync
-        </span>
+        <Link
+          href="/jobs"
+          className="flex items-center gap-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 rounded"
+          aria-label="DriveSync — go to jobs"
+        >
+          <span className="text-yellow-400 font-bold text-lg tracking-tight lg:text-xl">
+            DS
+          </span>
+          <span className="hidden lg:inline ml-2 text-white font-semibold text-lg tracking-tight">
+            DriveSync
+          </span>
+        </Link>
         {role && (
           <span
             className={[
