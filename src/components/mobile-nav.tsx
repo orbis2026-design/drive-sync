@@ -80,6 +80,44 @@ function ActiveJobsIcon({ className }: { className?: string }) {
   );
 }
 
+function MarketingIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    </svg>
+  );
+}
+
+function AnalyticsIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  );
+}
+
 function SettingsIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -100,10 +138,12 @@ function SettingsIcon({ className }: { className?: string }) {
 }
 
 const TABS: NavTab[] = [
-  { href: "/clients",  label: "Clients",    icon: ClientsIcon    },
-  { href: "/scan",     label: "Scan VIN",   icon: ScanVinIcon    },
-  { href: "/jobs",     label: "Active Jobs", icon: ActiveJobsIcon },
-  { href: "/settings", label: "Settings",   icon: SettingsIcon   },
+  { href: "/clients",    label: "Clients",      icon: ClientsIcon    },
+  { href: "/scan",       label: "Scan VIN",     icon: ScanVinIcon    },
+  { href: "/jobs",       label: "Active Jobs",  icon: ActiveJobsIcon },
+  { href: "/marketing",  label: "Marketing",    icon: MarketingIcon  },
+  { href: "/analytics",  label: "Financials",   icon: AnalyticsIcon  },
+  { href: "/settings",   label: "Settings",     icon: SettingsIcon   },
 ];
 
 // ---------------------------------------------------------------------------
