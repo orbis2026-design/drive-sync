@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { computeMaintenanceBadges, type MaintenanceItem } from "@/lib/maintenance";
 import { ClientFeed, type ClientData, type VehicleData } from "./ClientFeed";
@@ -13,68 +14,75 @@ export const metadata = {
 // ---------------------------------------------------------------------------
 // Data fetching helpers
 // ---------------------------------------------------------------------------
-async function fetchClients(): Promise<ClientData[]> {
-  // Scope to a specific tenant if DEMO_TENANT_ID is configured; otherwise
-  // return all clients (useful for local development without multi-tenancy).
-  const tenantId = process.env.DEMO_TENANT_ID;
 
-  try {
-    const rows = await prisma.client.findMany({
-      where: tenantId ? { tenantId } : undefined,
-      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
-      include: {
-        vehicles: {
-          orderBy: { year: "desc" },
-          include: { globalVehicle: true },
+/**
+ * Fetch clients with a 60-second edge-cache TTL so the Vercel Edge Network
+ * serves this static-ish list instantly on repeat requests, while still
+ * refreshing in the background via stale-while-revalidate (Issue #39).
+ */
+const fetchClients = unstable_cache(
+  async (tenantId: string | undefined): Promise<ClientData[]> => {
+    try {
+      const rows = await prisma.client.findMany({
+        where: tenantId ? { tenantId } : undefined,
+        orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+        include: {
+          vehicles: {
+            orderBy: { year: "desc" },
+            include: { globalVehicle: true },
+          },
         },
-      },
-    });
+      });
 
-    return rows.map((client): ClientData => ({
-      id: client.id,
-      firstName: client.firstName,
-      lastName: client.lastName,
-      email: client.email,
-      phone: client.phone,
-      vehicles: client.vehicles.map((v): VehicleData => {
-        // Pre-compute maintenance badges server-side so the initial render is
-        // fully populated — no extra client round-trip on first expand.
-        const schedule =
-          v.globalVehicle && v.mileageIn != null
-            ? (v.globalVehicle.maintenanceScheduleJson as MaintenanceItem[])
-            : [];
+      return rows.map((client): ClientData => ({
+        id: client.id,
+        firstName: client.firstName,
+        lastName: client.lastName,
+        email: client.email,
+        phone: client.phone,
+        vehicles: client.vehicles.map((v): VehicleData => {
+          // Pre-compute maintenance badges server-side so the initial render is
+          // fully populated — no extra client round-trip on first expand.
+          const schedule =
+            v.globalVehicle && v.mileageIn != null
+              ? (v.globalVehicle.maintenanceScheduleJson as MaintenanceItem[])
+              : [];
 
-        const maintenanceBadges =
-          v.mileageIn != null
-            ? computeMaintenanceBadges(v.mileageIn, schedule)
-            : [];
+          const maintenanceBadges =
+            v.mileageIn != null
+              ? computeMaintenanceBadges(v.mileageIn, schedule)
+              : [];
 
-        return {
-          id: v.id,
-          make: v.make,
-          model: v.model,
-          year: v.year,
-          vin: v.vin,
-          plate: v.plate,
-          color: v.color,
-          mileageIn: v.mileageIn,
-          maintenanceBadges,
-        };
-      }),
-    }));
-  } catch {
-    // Database not yet available (e.g. during initial setup without
-    // a provisioned DATABASE_URL). Return an empty list so the page
-    // still renders cleanly.
-    return [];
-  }
-}
+          return {
+            id: v.id,
+            make: v.make,
+            model: v.model,
+            year: v.year,
+            vin: v.vin,
+            plate: v.plate,
+            color: v.color,
+            mileageIn: v.mileageIn,
+            maintenanceBadges,
+          };
+        }),
+      }));
+    } catch {
+      // Database not yet available (e.g. during initial setup without
+      // a provisioned DATABASE_URL). Return an empty list so the page
+      // still renders cleanly.
+      return [];
+    }
+  },
+  ["clients-list"],
+  { revalidate: 60, tags: ["clients"] },
+);
 
 // ---------------------------------------------------------------------------
 // Page component
 // ---------------------------------------------------------------------------
 export default async function ClientsPage() {
-  const clients = await fetchClients();
+  const tenantId = process.env.DEMO_TENANT_ID;
+  const clients = await fetchClients(tenantId);
 
   return (
     <div className="flex flex-col min-h-full">

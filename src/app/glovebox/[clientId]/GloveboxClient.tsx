@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { type GloveboxData, type GloveboxWorkOrder } from "./page";
+import { type GloveboxData, type GloveboxWorkOrder, type GloveboxWarranty } from "./page";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -246,11 +246,106 @@ function RequestServiceButton({ clientName }: { clientName: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// WarrantyCountdown — 12-month countdown timer for a single warranty (Issue #36)
+// ---------------------------------------------------------------------------
+
+/** Compute the display values for a warranty given a reference timestamp. */
+function computeWarrantyDisplay(warranty: GloveboxWarranty, nowMs: number) {
+  const installed = new Date(warranty.installedAt).getTime();
+  const expires = new Date(warranty.expiresAt).getTime();
+  const totalMs = expires - installed;
+  const remainingMs = Math.max(0, expires - nowMs);
+  const daysRemaining = Math.floor(remainingMs / (1000 * 60 * 60 * 24));
+  const monthsRemaining = Math.floor(daysRemaining / 30);
+  const progressPct = totalMs > 0
+    ? Math.max(0, Math.min(100, (remainingMs / totalMs) * 100))
+    : 0;
+  const isExpired = remainingMs <= 0;
+  const isWarning = daysRemaining <= 30 && !isExpired;
+  return { daysRemaining, monthsRemaining, progressPct, isExpired, isWarning };
+}
+
+function WarrantyCountdown({ warranty, nowMs }: { warranty: GloveboxWarranty; nowMs: number }) {
+  const { daysRemaining, monthsRemaining, progressPct, isExpired, isWarning } =
+    computeWarrantyDisplay(warranty, nowMs);
+
+  const barColor = isExpired
+    ? "bg-gray-300"
+    : isWarning
+    ? "bg-amber-400"
+    : "bg-emerald-500";
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-900 truncate">
+            {warranty.partName}
+          </p>
+          {(warranty.partNumber || warranty.supplier) && (
+            <p className="text-xs text-gray-400 mt-0.5">
+              {[warranty.supplier, warranty.partNumber && `#${warranty.partNumber}`]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          )}
+        </div>
+        <span
+          className={[
+            "flex-shrink-0 text-xs font-bold px-2 py-0.5 rounded-full",
+            isExpired
+              ? "bg-gray-100 text-gray-500"
+              : isWarning
+              ? "bg-amber-50 text-amber-700"
+              : "bg-emerald-50 text-emerald-700",
+          ].join(" ")}
+        >
+          {isExpired
+            ? "Expired"
+            : monthsRemaining > 0
+            ? `${monthsRemaining}mo left`
+            : `${daysRemaining}d left`}
+        </span>
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${barColor}`}
+          style={{ width: `${progressPct}%` }}
+          role="progressbar"
+          aria-valuenow={Math.round(progressPct)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`${Math.round(progressPct)}% warranty remaining`}
+        />
+      </div>
+      <p className="text-[10px] text-gray-400 mt-1">
+        {warranty.warrantyMonths}-month warranty · installed{" "}
+        {new Date(warranty.installedAt).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })}
+        {" · expires "}
+        {new Date(warranty.expiresAt).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })}
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // GloveboxClient — main export
 // ---------------------------------------------------------------------------
 
 export function GloveboxClient({ data }: { data: GloveboxData }) {
   const clientName = `${data.client.firstName} ${data.client.lastName}`;
+  // Capture "now" once at mount time so countdown values are stable during render.
+  const [nowMs] = useState(() => Date.now());
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -288,6 +383,26 @@ export function GloveboxClient({ data }: { data: GloveboxData }) {
           </div>
         ) : (
           data.vehicles.map((v) => <VehicleCard key={v.id} vehicle={v} />)
+        )}
+
+        {/* ── Warranty Vault ─────────────────────────────────────────── */}
+        {data.warranties && data.warranties.length > 0 && (
+          <section aria-labelledby="warranty-heading">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xl" aria-hidden="true">🛡️</span>
+              <h2
+                id="warranty-heading"
+                className="text-base font-bold text-gray-900"
+              >
+                Parts Warranty Vault
+              </h2>
+            </div>
+            <div className="space-y-2">
+              {data.warranties.map((w) => (
+                <WarrantyCountdown key={w.id} warranty={w} nowMs={nowMs} />
+              ))}
+            </div>
+          </section>
         )}
       </main>
 

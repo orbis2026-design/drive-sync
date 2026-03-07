@@ -17,6 +17,12 @@ const SETTINGS_ITEMS = [
     title: "QuickBooks Online",
     description: "Sync work orders directly into your QuickBooks account.",
   },
+  {
+    href: "/settings/integrations",
+    icon: "🔗",
+    title: "Integrations",
+    description: "Connect Google Business, Twilio voice, and more.",
+  },
 ];
 
 export default function SettingsPage() {
