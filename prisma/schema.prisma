@@ -109,6 +109,8 @@ model WorkOrder {
   laborCents    Int             @default(0)
   partsCents    Int             @default(0)
   approvalToken String?         @unique
+  closedAt      DateTime?
+  paymentMethod String?
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
@@ -126,5 +128,6 @@ enum WorkOrderStatus {
   PENDING_APPROVAL
   COMPLETE
   INVOICED
+  PAID
 }
 
