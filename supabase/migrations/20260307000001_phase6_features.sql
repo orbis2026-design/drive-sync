@@ -58,7 +58,7 @@ comment on column clients.is_commercial_fleet is
 -- 5. consumables
 --    Tracks bulk shop supplies (oil drums, brake cleaner cases, shop rags, etc.)
 --    Stock is auto-deducted when a WorkOrder is marked PAID based on the
---    vehicle''s oil capacity stored in global_vehicles.maintenance_schedule_json.
+--    vehicle's oil capacity stored in global_vehicles.maintenance_schedule_json.
 -- ---------------------------------------------------------------------------
 create table if not exists consumables (
   id                  uuid        primary key default uuid_generate_v4(),

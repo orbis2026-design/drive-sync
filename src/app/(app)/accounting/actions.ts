@@ -7,9 +7,11 @@ import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
 // Constants
 // ---------------------------------------------------------------------------
 
-const CARD_FEE_RATE = 0.029;
-const CARD_FEE_FIXED_CENTS = 30;
-const DEFAULT_PARTS_COST_RATIO = 0.55;
+// Card processing fee approximation — mirrors the same values in analytics/actions.ts.
+// Both should be updated together if the payment processor's rate changes.
+const CARD_FEE_RATE = 0.029;       // 2.9% of transaction total
+const CARD_FEE_FIXED_CENTS = 30;   // $0.30 flat fee per transaction
+const DEFAULT_PARTS_COST_RATIO = 0.55; // Assumed wholesale cost when partsCostCents is null
 
 // ---------------------------------------------------------------------------
 // Types

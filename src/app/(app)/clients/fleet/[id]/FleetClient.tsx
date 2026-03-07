@@ -66,7 +66,7 @@ function generateBatchInvoice(
     `─────────────────────────────────────────────────────────`,
     ...orders.map(
       (o) =>
-        `${o.title.padEnd(30).slice(0, 30)}  ${o.vehicleLabel.padEnd(20).slice(0, 20)}  ${formatCents(o.totalCents)}`,
+        `${o.title.padEnd(INVOICE_TITLE_WIDTH).slice(0, INVOICE_TITLE_WIDTH)}  ${o.vehicleLabel.padEnd(INVOICE_VEHICLE_WIDTH).slice(0, INVOICE_VEHICLE_WIDTH)}  ${formatCents(o.totalCents)}`,
     ),
     `─────────────────────────────────────────────────────────`,
     `TOTAL DUE (Net 30):                                 ${formatCents(total)}`,
@@ -84,8 +84,12 @@ function generateBatchInvoice(
 }
 
 // ---------------------------------------------------------------------------
-// FleetClient
+// Invoice column widths (characters) for plain-text batch invoice
 // ---------------------------------------------------------------------------
+const INVOICE_TITLE_WIDTH = 30;   // Work order title column
+const INVOICE_VEHICLE_WIDTH = 20; // Vehicle label column
+
+
 
 export function FleetClient({ data }: { data: FleetData }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());

@@ -5,6 +5,17 @@ import { prisma } from "@/lib/prisma";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Default number of oil quarts deducted from the matching Consumable when a
+ * WorkOrder is marked PAID and the vehicle's oilType is recognized but no
+ * GlobalVehicle oil-capacity record is available.
+ */
+const DEFAULT_OIL_DEDUCTION_QUARTS = 5;
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -239,9 +250,10 @@ export async function processPayment(
         });
 
         if (consumable) {
-          // Default deduction: 5 quarts (mechanics can adjust threshold later)
-          const deductQty = 5;
-          const newStock = Math.max(0, consumable.currentStock - deductQty);
+          const newStock = Math.max(
+            0,
+            consumable.currentStock - DEFAULT_OIL_DEDUCTION_QUARTS,
+          );
           await prisma.consumable.update({
             where: { id: consumable.id },
             data: { currentStock: newStock },
