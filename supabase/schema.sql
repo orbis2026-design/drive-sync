@@ -129,7 +129,8 @@ create type work_order_status as enum (
   'ACTIVE',
   'PENDING_APPROVAL',
   'COMPLETE',
-  'INVOICED'
+  'INVOICED',
+  'PAID'
 );
 
 create table if not exists work_orders (
@@ -152,6 +153,10 @@ create table if not exists work_orders (
   parts_json        jsonb,
   -- Secure token sent to client for approval portal access.
   approval_token    uuid               unique,
+  -- Timestamp when payment was recorded and the job was closed.
+  closed_at         timestamptz,
+  -- Records how the payment was made (e.g. 'card_tap', 'card_manual', 'cash', 'check').
+  payment_method    text,
   created_at        timestamptz        not null default now(),
   updated_at        timestamptz        not null default now()
 );

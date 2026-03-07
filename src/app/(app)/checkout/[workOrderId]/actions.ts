@@ -1,0 +1,217 @@
+"use server";
+
+import { createAdminClient } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
+import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** All data the Checkout Terminal needs on initial render. */
+export type CheckoutData = {
+  workOrderId: string;
+  title: string;
+  laborCents: number;
+  partsCents: number;
+  totalCents: number;
+  taxCents: number;
+  subtotalCents: number;
+  isPaid: boolean;
+  closedAt: string | null;
+  paymentMethod: string | null;
+  client: { firstName: string; lastName: string; phone: string };
+  vehicle: { make: string; model: string; year: number };
+};
+
+// ---------------------------------------------------------------------------
+// Server Action — getCheckoutData
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetches everything the Checkout Terminal needs on initial render:
+ *   - WorkOrder totals (laborCents, partsCents)
+ *   - Client name and phone number
+ *   - Vehicle year/make/model
+ *   - Parts list for tax recalculation
+ *   - Whether the job has already been paid
+ *
+ * Valid for work orders in PENDING_APPROVAL, ACTIVE, INVOICED, or PAID status.
+ */
+export async function getCheckoutData(
+  workOrderId: string,
+): Promise<{ data: CheckoutData } | { error: string }> {
+  if (!workOrderId) {
+    return { error: "Missing work order ID." };
+  }
+
+  let workOrder: {
+    id: string;
+    title: string;
+    status: string;
+    laborCents: number;
+    partsCents: number;
+    tenantId: string;
+    closedAt: Date | null;
+    paymentMethod: string | null;
+    client: { firstName: string; lastName: string; phone: string };
+    vehicle: { make: string; model: string; year: number };
+  } | null = null;
+
+  try {
+    workOrder = await prisma.workOrder.findUnique({
+      where: { id: workOrderId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        laborCents: true,
+        partsCents: true,
+        tenantId: true,
+        closedAt: true,
+        paymentMethod: true,
+        client: { select: { firstName: true, lastName: true, phone: true } },
+        vehicle: { select: { make: true, model: true, year: true } },
+      },
+    });
+  } catch {
+    // Database unavailable in demo — fall through to error below.
+  }
+
+  if (!workOrder) {
+    return { error: "Work order not found." };
+  }
+
+  const isPaid = workOrder.status === "PAID";
+
+  // Only allow checkout for work orders that are ready for payment or already paid.
+  const allowedStatuses = [
+    "PENDING_APPROVAL",
+    "ACTIVE",
+    "INVOICED",
+    "COMPLETE",
+    "PAID",
+  ];
+  if (!allowedStatuses.includes(workOrder.status)) {
+    return {
+      error:
+        "This work order is not ready for checkout. The quote must be approved before collecting payment.",
+    };
+  }
+
+  // Use stored partsCents and laborCents as authoritative totals.
+  const partsSubtotalCents = workOrder.partsCents;
+  const laborSubtotalCents = workOrder.laborCents;
+  const subtotalCents = partsSubtotalCents + laborSubtotalCents;
+  const taxCents = Math.round(subtotalCents * TAX_RATE);
+  const totalCents = subtotalCents + taxCents;
+
+  return {
+    data: {
+      workOrderId: workOrder.id,
+      title: workOrder.title,
+      laborCents: laborSubtotalCents,
+      partsCents: partsSubtotalCents,
+      totalCents,
+      taxCents,
+      subtotalCents,
+      isPaid,
+      closedAt: workOrder.closedAt ? workOrder.closedAt.toISOString() : null,
+      paymentMethod: workOrder.paymentMethod,
+      client: workOrder.client,
+      vehicle: workOrder.vehicle,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Server Action — processPayment
+// ---------------------------------------------------------------------------
+
+/**
+ * Records a payment and marks the work order as PAID.
+ *
+ * Steps:
+ *   1. Validates the work order exists and is NOT already PAID.
+ *   2. Transitions status to PAID via Prisma, setting closedAt and paymentMethod.
+ *   3. Mirrors the update to the Supabase work_orders row (best-effort).
+ *
+ * Payment methods:
+ *   - "card_tap"    — tap-to-pay / contactless
+ *   - "card_manual" — manual card entry
+ *   - "cash"        — cash payment
+ *   - "check"       — check payment
+ */
+export async function processPayment(
+  workOrderId: string,
+  paymentMethod: "card" | "cash_check",
+  cardDetails?: { last4: string; brand: string },
+): Promise<{ success: true; closedAt: string } | { error: string }> {
+  if (!workOrderId) {
+    return { error: "Missing work order ID." };
+  }
+
+  // --- Fetch work order to validate state ----------------------------------
+  let workOrder: { id: string; status: string } | null = null;
+
+  try {
+    workOrder = await prisma.workOrder.findUnique({
+      where: { id: workOrderId },
+      select: { id: true, status: true },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Database error.";
+    return { error: message };
+  }
+
+  if (!workOrder) {
+    return { error: "Work order not found." };
+  }
+
+  if (workOrder.status === "PAID") {
+    return { error: "This work order has already been paid." };
+  }
+
+  // Determine the stored payment method string.
+  let storedMethod: string;
+  if (paymentMethod === "card") {
+    storedMethod = cardDetails ? "card_manual" : "card_tap";
+  } else {
+    // cash_check — caller passes "cash" or "check" as the brand field
+    storedMethod = cardDetails?.brand ?? "cash";
+  }
+
+  const closedAt = new Date();
+
+  // --- Persist via Prisma --------------------------------------------------
+  try {
+    await prisma.workOrder.update({
+      where: { id: workOrderId },
+      data: {
+        status: "PAID",
+        closedAt,
+        paymentMethod: storedMethod,
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error.";
+    return { error: `Failed to record payment: ${message}` };
+  }
+
+  // --- Mirror to Supabase work_orders (best-effort) ------------------------
+  try {
+    const adminDb = createAdminClient();
+    await adminDb
+      .from("work_orders")
+      .update({
+        status: "PAID",
+        closed_at: closedAt.toISOString(),
+        payment_method: storedMethod,
+      })
+      .eq("id", workOrderId);
+  } catch {
+    // Non-fatal — Prisma write succeeded.
+  }
+
+  return { success: true, closedAt: closedAt.toISOString() };
+}
