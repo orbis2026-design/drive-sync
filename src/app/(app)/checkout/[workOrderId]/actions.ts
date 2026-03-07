@@ -5,6 +5,17 @@ import { prisma } from "@/lib/prisma";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Default number of oil quarts deducted from the matching Consumable when a
+ * WorkOrder is marked PAID and the vehicle's oilType is recognized but no
+ * GlobalVehicle oil-capacity record is available.
+ */
+const DEFAULT_OIL_DEDUCTION_QUARTS = 5;
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -211,6 +222,47 @@ export async function processPayment(
       .eq("id", workOrderId);
   } catch {
     // Non-fatal — Prisma write succeeded.
+  }
+
+  // --- Auto-deduct consumables (best-effort) --------------------------------
+  // When a job is closed, query the vehicle's oilType to find the matching
+  // consumable and deduct the oil capacity (defaulting to 5 quarts if unknown).
+  try {
+    const tenantId = process.env.DEMO_TENANT_ID;
+    if (tenantId) {
+      const wo = await prisma.workOrder.findUnique({
+        where: { id: workOrderId },
+        select: {
+          vehicle: { select: { oilType: true } },
+        },
+      });
+
+      const oilType = wo?.vehicle?.oilType ?? null;
+
+      if (oilType) {
+        // Find the matching consumable row by name similarity (case-insensitive prefix match)
+        const consumable = await prisma.consumable.findFirst({
+          where: {
+            tenantId,
+            name: { contains: oilType.split(" ")[0], mode: "insensitive" },
+          },
+          select: { id: true, currentStock: true },
+        });
+
+        if (consumable) {
+          const newStock = Math.max(
+            0,
+            consumable.currentStock - DEFAULT_OIL_DEDUCTION_QUARTS,
+          );
+          await prisma.consumable.update({
+            where: { id: consumable.id },
+            data: { currentStock: newStock },
+          });
+        }
+      }
+    }
+  } catch {
+    // Non-fatal — consumable deduction is best-effort.
   }
 
   return { success: true, closedAt: closedAt.toISOString() };

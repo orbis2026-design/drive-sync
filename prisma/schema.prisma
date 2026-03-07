@@ -24,20 +24,23 @@ model Tenant {
   vehicles   Vehicle[]
   workOrders WorkOrder[]
   outboundCampaigns OutboundCampaign[]
+  consumables Consumable[]
 }
 
 // ---------------------------------------------------------------------------
 // Client – vehicle owner / customer of a specific tenant.
 // ---------------------------------------------------------------------------
 model Client {
-  id        String   @id @default(cuid())
-  tenantId  String
-  firstName String
-  lastName  String
-  email     String?
-  phone     String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                String   @id @default(cuid())
+  tenantId          String
+  firstName         String
+  lastName          String
+  email             String?
+  phone             String
+  zipCode           String?  // ZIP code used for drive-time padding calculations
+  isCommercialFleet Boolean  @default(false) // true for small-business fleet accounts
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   vehicles   Vehicle[]
@@ -115,6 +118,7 @@ model WorkOrder {
   // Wholesale cost of parts (COGS). When null, a 55% markup ratio is assumed.
   partsCostCents Int?
   approvalToken String?         @unique
+  scheduledAt   DateTime?       // Calendar appointment timestamp
   closedAt      DateTime?
   paymentMethod String?
   createdAt     DateTime        @default(now())
@@ -126,9 +130,11 @@ model WorkOrder {
 
   @@index([tenantId])
   @@index([tenantId, status])
+  @@index([tenantId, scheduledAt])
 }
 
 enum WorkOrderStatus {
+  REQUESTED        // Customer self-submitted via intake link; awaiting shop review
   INTAKE
   ACTIVE
   PENDING_APPROVAL
@@ -164,4 +170,25 @@ enum OutboundCampaignStatus {
   QUEUED
   SENT
   DISCARDED
+}
+
+// ---------------------------------------------------------------------------
+// Consumable – tracks bulk shop supplies (oil, brake cleaner, rags, etc.).
+// Stock is automatically deducted when a WorkOrder is marked PAID based on
+// the vehicle's oil capacity from GlobalLexicon.
+// ---------------------------------------------------------------------------
+model Consumable {
+  id                String   @id @default(cuid())
+  tenantId          String
+  name              String   // e.g. "5W-30 Synthetic", "Brake Cleaner"
+  unit              String   // e.g. "Quart", "Can", "Sheet"
+  currentStock      Float    @default(0)  // How many units remain
+  lowStockThreshold Float    @default(5)  // Glow-red warning below this level
+  costPerUnitCents  Int      @default(0)  // Wholesale cost per unit in cents
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
 }
