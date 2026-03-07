@@ -221,7 +221,7 @@ export function QaDispatchClient({ workOrders }: QaDispatchClientProps) {
                   </button>
                   <p className="text-xs text-gray-500 text-center">
                     By clicking above you confirm as Shop Owner that you have
-                    reviewed the tech&apos;s assessment and authorise forwarding
+                    reviewed the tech&apos;s assessment and authorize forwarding
                     the digital waiver to the customer.
                   </p>
                 </div>

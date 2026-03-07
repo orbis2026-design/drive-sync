@@ -5,7 +5,7 @@
  *
  * Allows a Shop Owner to:
  *   1. Select a commercial fleet client and date range.
- *   2. View all APPROVED / COMPLETE WorkOrders within that range.
+ *   2. View all COMPLETE / INVOICED WorkOrders within that range.
  *   3. Click "Roll Up to Batch Invoice" to create a single consolidated
  *      Stripe Invoice covering all selected line items.
  *   4. All rolled-up WorkOrders are then moved to BATCHED_PENDING_PAYMENT.
