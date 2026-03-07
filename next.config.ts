@@ -20,6 +20,10 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
+  // Silence the Turbopack/webpack conflict from the PWA plugin.
+  // Next.js 16 defaults to Turbopack; setting an empty turbopack config
+  // acknowledges this and prevents the build error.
+  turbopack: {},
   images: {
     // Prefer modern formats for smaller file sizes on all devices.
     formats: ["image/avif", "image/webp"],

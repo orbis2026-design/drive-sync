@@ -12,6 +12,14 @@
  * When the device goes offline, call patchWorkOrderLocally() from offline-db.ts
  * to queue changes. This hook will automatically flush those changes once the
  * device reconnects.
+ *
+ * Issue #50 — Offline Collision & Version Control Lock:
+ *   Before flushing each pending patch the hook fetches the server-side status.
+ *   If the status is COMPLETE, INVOICED, or PAID the patch is routed through
+ *   /api/sync which will reject any mutation to the protected financial fields
+ *   (parts_json, labor_json, total_price) and return a LOCKED_CONTRACT error.
+ *   The hook surfaces that error via a `conflictError` string so the UI can
+ *   render the mandatory "Sync Failed" modal.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -28,6 +36,14 @@ export type OfflineSyncState = {
   pendingCount: number;
   /** True while a sync operation is in progress. */
   isSyncing: boolean;
+  /**
+   * Set when the sync engine detects a conflict with a locked (legally
+   * approved) work order.  The UI must render a modal explaining the issue.
+   * Call `clearConflict` to dismiss.
+   */
+  conflictError: string | null;
+  /** Dismiss the conflict error after the mechanic has acknowledged it. */
+  clearConflict: () => void;
   /** Manually trigger a sync attempt. */
   sync: () => Promise<void>;
 };
@@ -42,9 +58,12 @@ export function useOfflineSync(): OfflineSyncState {
   );
   const [pendingCount, setPendingCount] = useState<number>(0);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [conflictError, setConflictError] = useState<string | null>(null);
 
   // Prevent concurrent sync runs
   const syncInProgress = useRef(false);
+
+  const clearConflict = useCallback(() => setConflictError(null), []);
 
   // ---------------------------------------------------------------------------
   // Refresh pending count from IndexedDB
@@ -60,7 +79,7 @@ export function useOfflineSync(): OfflineSyncState {
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Sync pending changes → Server Actions
+  // Sync pending changes → /api/sync (Issue #50 collision guard)
   // ---------------------------------------------------------------------------
 
   const sync = useCallback(async () => {
@@ -82,21 +101,51 @@ export function useOfflineSync(): OfflineSyncState {
 
             const patch = JSON.parse(wo.pendingPatch) as Record<string, unknown>;
 
-            // Flush the patch via the work-orders REST API endpoint.
-            // In a future iteration this can be replaced with a direct Server
-            // Action call (e.g. updateWorkOrderNotes) once the route handler
-            // is wired up.
-            const res = await fetch(`/api/work-orders/${wo.id}`, {
+            // Route through /api/sync which enforces the Version Control Lock.
+            // The payload includes the locally-cached versionHash so the server
+            // can detect concurrent writes from other sessions.
+            const res = await fetch("/api/sync", {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(patch),
+              body: JSON.stringify({
+                workOrderId: wo.id,
+                versionHash: (wo as unknown as Record<string, unknown>).versionHash,
+                patch,
+              }),
             });
 
             if (res.ok) {
               await markSynced(wo.id);
+              return;
+            }
+
+            // Handle conflict responses from the sync endpoint.
+            if (res.status === 409) {
+              let errBody: {
+                error?: string;
+                code?: string;
+              } = {};
+              try {
+                errBody = (await res.json()) as typeof errBody;
+              } catch {
+                // Non-JSON body — use generic message.
+              }
+
+              if (errBody.code === "LOCKED_CONTRACT") {
+                // The work order has been legally approved — surface the
+                // critical modal via conflictError.
+                setConflictError(
+                  errBody.error ??
+                    "Sync Failed: Client has already signed this quote. You cannot modify an approved contract. Please issue a Change Order.",
+                );
+                // Do NOT mark as synced — leave in queue so the mechanic can
+                // see which record caused the conflict.
+              }
+              // For VERSION_CONFLICT the record stays in the queue and will
+              // be retried on the next sync cycle after a page refresh.
             }
           } catch {
-            // Leave as unsynced; will retry on next sync cycle.
+            // Network failure — leave as unsynced; will retry on next cycle.
           }
         }),
       );
@@ -149,7 +198,77 @@ export function useOfflineSync(): OfflineSyncState {
     return () => clearInterval(interval);
   }, [refreshPendingCount]);
 
-  return { isOnline, pendingCount, isSyncing, sync };
+  return { isOnline, pendingCount, isSyncing, conflictError, clearConflict, sync };
+}
+
+// ---------------------------------------------------------------------------
+// SyncConflictModal — critical modal for legally-locked work orders
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders a full-screen blocking modal when the sync engine detects that
+ * a local offline patch attempted to mutate a legally-approved contract.
+ *
+ * Drop this at the root of any page that uses useOfflineSync so the mechanic
+ * can never miss the conflict notification.
+ */
+export function SyncConflictModal() {
+  const { conflictError, clearConflict } = useOfflineSync();
+
+  if (!conflictError) return null;
+
+  return (
+    <div
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="sync-conflict-title"
+      aria-describedby="sync-conflict-desc"
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+    >
+      <div className="w-full max-w-md bg-gray-950 border-2 border-red-500 rounded-2xl p-6 shadow-2xl shadow-red-500/20">
+        {/* Header */}
+        <div className="flex items-start gap-3 mb-4">
+          <span className="text-3xl flex-shrink-0" aria-hidden="true">🔒</span>
+          <div>
+            <h2
+              id="sync-conflict-title"
+              className="text-lg font-black text-red-400 uppercase tracking-wide"
+            >
+              Sync Failed — Contract Locked
+            </h2>
+            <p className="text-xs text-red-500/70 mt-0.5 font-medium uppercase tracking-wider">
+              Legal conflict detected
+            </p>
+          </div>
+        </div>
+
+        {/* Body */}
+        <p
+          id="sync-conflict-desc"
+          className="text-sm text-gray-300 leading-relaxed mb-6"
+        >
+          {conflictError}
+        </p>
+
+        {/* Action */}
+        <div className="flex flex-col gap-3">
+          <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-xs text-red-300 font-medium leading-snug">
+            ⚠️ Your offline changes to the financial terms of this job have
+            been discarded. The client&apos;s signed contract remains unchanged.
+            To modify the scope of work, initiate a{" "}
+            <strong className="text-red-200">Change Order</strong>.
+          </div>
+
+          <button
+            onClick={clearConflict}
+            className="w-full rounded-xl bg-red-600 hover:bg-red-500 active:scale-95 text-white font-bold py-3 text-sm transition-all duration-150"
+          >
+            I Understand — Dismiss
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
