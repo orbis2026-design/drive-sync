@@ -34,6 +34,12 @@ export interface OfflineWorkOrder {
   notes?: string;
   laborCents: number;
   partsCents: number;
+  /**
+   * Server-side version hash (UUID). Included in sync requests so the server
+   * can detect concurrent writes. Populated when the work order is cached from
+   * the server via `cacheWorkOrder()`.
+   */
+  versionHash?: string;
   /** Epoch ms of last local modification. */
   updatedAt: number;
   /** 1 once this record has been successfully synced to the server, 0 if pending. */

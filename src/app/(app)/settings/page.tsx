@@ -12,6 +12,13 @@ const SETTINGS_ITEMS = [
     description: "Toggle Inventory, Marketing, and Fleet features on or off.",
   },
   {
+    href: "/settings/tax",
+    icon: "🧾",
+    title: "Tax & Fee Matrix",
+    description:
+      "Configure labor vs. parts tax rates and environmental hazardous-waste fees per your state's laws.",
+  },
+  {
     href: "/settings/billing",
     icon: "💳",
     title: "Billing & Subscription",

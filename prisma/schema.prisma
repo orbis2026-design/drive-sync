@@ -32,6 +32,9 @@ model Tenant {
   // Feature flags for optional product modules (Issue #49)
   // Shape: { "inventory": Boolean, "marketing": Boolean, "fleet": Boolean }
   featuresJson       Json               @default("{\"inventory\":true,\"marketing\":true,\"fleet\":true}")
+  // Tax & Environmental Fee Matrix (Issue #51)
+  // Shape: { "labor_tax_rate": 0.00, "parts_tax_rate": 0.085, "environmental_fee_flat": 5.00, "environmental_fee_percentage": 0.00 }
+  taxMatrixJson      Json               @default("{\"labor_tax_rate\":0.00,\"parts_tax_rate\":0.085,\"environmental_fee_flat\":5.00,\"environmental_fee_percentage\":0.00}")
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
@@ -156,6 +159,17 @@ model WorkOrder {
   scheduledAt   DateTime?       // Calendar appointment timestamp
   closedAt      DateTime?
   paymentMethod String?
+  // Offline Collision & Version Control Lock (Issue #50)
+  // Rotated on every server-side write so the sync engine can detect stale offline patches.
+  versionHash   String?         // UUID rotated on each server mutation
+  isLocked      Boolean         @default(false) // true when status is COMPLETE/INVOICED/PAID
+  // Structured labour line-items for tax-matrix calculations (Issue #51 / #52)
+  // Shape: LaborLine[] — [{ "description": "Engine removal", "hours": 3.0 }]
+  laborJson     Json?
+  // Diagnostic-Only intake flow (Issue #53)
+  isDiagnostic       Boolean  @default(false)
+  diagnosticFeeCents Int      @default(0)
+  rollDiagnosticFee  Boolean  @default(false)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
