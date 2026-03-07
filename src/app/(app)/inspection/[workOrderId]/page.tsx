@@ -3,10 +3,12 @@
 import { use, useCallback, useRef, useState } from "react";
 import {
   syncInspection,
+  saveVoiceNote,
   type InspectionPayload,
   type InspectionStatus,
   type InspectionPoint,
 } from "./actions";
+import { VoiceLoggerFab } from "@/components/voice-logger-fab";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -450,6 +452,16 @@ export default function InspectionPage({
           Changes auto-save · Results visible to client on invoice
         </p>
       </div>
+
+      {/*
+       * ── Voice-to-Text Logger ─────────────────────────────────────────────
+       * Floating Action Button that lets the technician dictate a voice note.
+       * The parsed Complaint / Cause / Correction fields are saved to the
+       * work_orders.voice_note_json column via the saveVoiceNote Server Action.
+       */}
+      <VoiceLoggerFab
+        onSave={(note) => saveVoiceNote(workOrderId, note)}
+      />
     </div>
   );
 }
