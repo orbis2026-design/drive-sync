@@ -13,8 +13,8 @@ import {
   approveAndSendMessage,
   discardMessage,
   sendBlastCampaign,
-  BLAST_AUDIENCES,
 } from "./actions";
+import { BLAST_AUDIENCES, type BlastAudience } from "./constants";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -6,6 +6,7 @@ import SignatureCanvas from "react-signature-canvas";
 import { approveQuote } from "./actions";
 import type { PortalData, MpiStatus } from "./actions";
 import { LiabilityWaiverModal } from "./liability";
+import { IntakeContract } from "./contract";
 
 // Dynamically import the 3D viewer — WebGL is client-only, no SSR.
 const VehicleViewer = dynamic(
@@ -346,6 +347,8 @@ export function PortalClient({
   const [isPending, startTransition] = useTransition();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showWaiver, setShowWaiver] = useState(false);
+  // Issue #44: contract must be accepted before the signature pad is shown
+  const [contractAccepted, setContractAccepted] = useState(false);
 
   // Detect safety-critical FAIL items in MPI for the liability gatekeeper.
   const failedCategories: string[] = data.mpi
@@ -575,7 +578,29 @@ export function PortalClient({
           )}
         </section>
 
+        {/* ── Legal Authorization Contract (Issue #44) ─────────────────── */}
+        {!contractAccepted && (
+          <section
+            aria-labelledby="contract-heading"
+            className="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-5"
+          >
+            <h2
+              id="contract-heading"
+              className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-4"
+            >
+              Authorization Agreement
+            </h2>
+            <IntakeContract
+              clientName={`${data.client.firstName} ${data.client.lastName ?? ""}`.trim()}
+              workOrderId={data.workOrderId}
+              accessedAt={new Date().toISOString()}
+              onAccept={() => setContractAccepted(true)}
+            />
+          </section>
+        )}
+
         {/* ── Signature Pad ─────────────────────────────────────────────── */}
+        {contractAccepted && (
         <section
           aria-labelledby="sig-heading"
           className="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-5"
@@ -620,9 +645,10 @@ export function PortalClient({
             Clear
           </button>
         </section>
+        )} {/* end contractAccepted */}
 
         {/* ── Error ─────────────────────────────────────────────────────── */}
-        {errorMsg && (
+        {contractAccepted && errorMsg && (
           <div
             role="alert"
             className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 font-medium"
@@ -632,6 +658,7 @@ export function PortalClient({
         )}
 
         {/* ── Authorize CTA ─────────────────────────────────────────────── */}
+        {contractAccepted && (
         <button
           type="button"
           onClick={handleAuthorize}
@@ -647,6 +674,7 @@ export function PortalClient({
         >
           {isPending ? "Processing…" : `Authorize ${formatDollars(data.totalCents)}`}
         </button>
+        )}
 
         <p className="text-center text-xs text-gray-400 leading-relaxed">
           This authorization is a binding agreement to pay the quoted amount

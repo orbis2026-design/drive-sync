@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { use, useState, useRef, useCallback } from "react";
 import { appendStepsToWorkOrder } from "./actions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -32,9 +32,9 @@ function fileToBase64(file: File): Promise<string> {
 export default function VisionPage({
   params,
 }: {
-  params: { vehicleId: string };
+  params: Promise<{ vehicleId: string }>;
 }) {
-  const { vehicleId } = params;
+  const { vehicleId } = use(params);
 
   const [preview, setPreview] = useState<string | null>(null);
   const [openIndex, setOpenIndex] = useState<number | null>(null);

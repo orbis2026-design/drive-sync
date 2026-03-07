@@ -14,12 +14,19 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-  apiVersion: "2026-02-25.clover",
-});
-
 /** Minimum order total (in cents) to offer BNPL payment methods. */
 const BNPL_THRESHOLD_CENTS = 50_000; // $500.00
+
+/** Lazily-initialized Stripe client (avoids build-time initialization errors). */
+function getStripe(): Stripe {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) {
+    throw new Error(
+      "STRIPE_SECRET_KEY environment variable is not set.",
+    );
+  }
+  return new Stripe(key, { apiVersion: "2026-02-25.clover" });
+}
 
 export async function POST(req: NextRequest) {
   let body: { workOrderId?: string; token?: string } = {};
@@ -92,6 +99,7 @@ export async function POST(req: NextRequest) {
   // --- Create Stripe Checkout session -------------------------------------
   let session: Stripe.Checkout.Session;
   try {
+    const stripe = getStripe();
     session = await stripe.checkout.sessions.create({
       mode: "payment",
       payment_method_types: paymentMethodTypes,

@@ -106,7 +106,18 @@ export async function fetchFleetData(
     const yearStart = new Date(new Date().getFullYear(), 0, 1);
     let fleetSpendYTDCents = 0;
 
-    const vehicles: FleetVehicle[] = client.vehicles.map((v) => ({
+    const vehicles: FleetVehicle[] = (client.vehicles as Array<{
+      id: string;
+      make: string;
+      model: string;
+      year: number;
+      plate: string | null;
+      vin: string | null;
+      color: string | null;
+      mileageIn: number | null;
+      oilType: string | null;
+      workOrders: { id: string }[];
+    }>).map((v) => ({
       id: v.id,
       make: v.make,
       model: v.model,
@@ -120,7 +131,15 @@ export async function fetchFleetData(
       lastServiceDate: null,
     }));
 
-    const completedOrders: FleetWorkOrder[] = client.workOrders
+    const completedOrders: FleetWorkOrder[] = (client.workOrders as Array<{
+      id: string;
+      title: string;
+      status: string;
+      laborCents: number;
+      partsCents: number;
+      closedAt: Date | null;
+      vehicle: { make: string; model: string; year: number };
+    }>)
       .filter((w) => ["COMPLETE", "INVOICED", "PAID"].includes(w.status))
       .map((w) => {
         const subtotal = w.laborCents + w.partsCents;

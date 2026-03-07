@@ -55,6 +55,12 @@ create table if not exists global_vehicles (
   -- [{ "interval_miles": 5000, "interval_months": 6, "task": "Oil Change", "parts": [...] }]
   known_faults_json         jsonb       not null default '[]'::jsonb,
   -- [{ "code": "P0301", "description": "Cylinder 1 Misfire", "likelihood": 0.87 }]
+  -- Fluid capacity & OEM oil weight (Issue #41) ─────────────────────────
+  oil_capacity_qts          numeric(4,2),           -- e.g. 5.0 (US quarts)
+  oil_weight_oem            text,                   -- e.g. "0W-20 Full Synthetic"
+  -- Array of trim/engine combos when VIN returns multiple possibilities ──
+  submodel_options_json     jsonb       not null default '[]'::jsonb,
+  -- [{ "engine": "1.5L Turbo", "trim": "Sport", "oil_capacity_qts": 4.4, "oil_weight_oem": "0W-20 Full Synthetic" }]
   -- ───────────────────────────────────────────────────────────────────────
   created_at               timestamptz not null default now(),
   updated_at               timestamptz not null default now(),
@@ -128,6 +134,7 @@ create type work_order_status as enum (
   'INTAKE',
   'ACTIVE',
   'PENDING_APPROVAL',
+  'BLOCKED_WAITING_APPROVAL',  -- mechanic awaiting client sign-off on a change order
   'COMPLETE',
   'INVOICED',
   'PAID'
@@ -151,6 +158,15 @@ create table if not exists work_orders (
   -- Finalised parts list written by the Parts Sourcing step.
   -- Shape: SelectedPart[] — see src/app/(app)/quotes/[workOrderId]/actions.ts
   parts_json        jsonb,
+  -- When true, parts are billed at cost (no retail markup). Liability flag shown.
+  customer_supplied_parts boolean not null default false,
+  -- Change-order (DeltaQuote) parts added AFTER initial approval.
+  -- Shape: SelectedPart[]
+  delta_parts_json  jsonb,
+  -- Unique token for the client to approve the delta change order.
+  delta_approval_token uuid unique,
+  -- True once the mandatory pre-inspection walkaround (Issue #43) is completed.
+  pre_check_complete boolean not null default false,
   -- Secure token sent to client for approval portal access.
   approval_token    uuid               unique,
   -- Timestamp when payment was recorded and the job was closed.
