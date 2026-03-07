@@ -134,7 +134,9 @@ export default function DiagnosticIntakePage() {
           vehicleMake: form.vehicleMake,
           vehicleModel: form.vehicleModel,
           vin: form.vin || undefined,
-          mileage: form.mileage ? parseInt(form.mileage, 10) : undefined,
+          mileage: form.mileage
+            ? Math.max(0, Math.floor(parseFloat(form.mileage)))
+            : undefined,
           symptom: form.complainedSymptom,
           diagnosticFeeCents,
           rollDiagnosticFee: rollFee,

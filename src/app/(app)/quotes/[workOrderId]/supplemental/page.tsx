@@ -163,13 +163,16 @@ export default function SupplementalClient({
           }),
         });
 
-        // Whether or not the sync route accepts the patch, we record locally
-        // and show confirmation — a dedicated supplemental server action would
-        // handle the full persistence in production.
-        void res;
+        if (!res.ok && res.status !== 409) {
+          // A 409 on a locked contract is expected in demo mode; treat non-fatal.
+          // Any other non-success status indicates a genuine server error.
+          const body = await res.json().catch(() => ({})) as { error?: string };
+          throw new Error(body.error ?? `Server error: ${res.status}`);
+        }
+
         setSubmitted(true);
-      } catch {
-        setError("Failed to submit change order. Please try again.");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to submit change order. Please try again.");
       }
     });
   }

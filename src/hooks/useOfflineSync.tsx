@@ -109,7 +109,7 @@ export function useOfflineSync(): OfflineSyncState {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 workOrderId: wo.id,
-                versionHash: (wo as unknown as Record<string, unknown>).versionHash,
+                versionHash: wo.versionHash,
                 patch,
               }),
             });

@@ -154,9 +154,7 @@ export async function PATCH(req: NextRequest) {
   // Map snake_case patch keys → camelCase Prisma field names for safety.
   const safeFieldMap: Record<string, string> = {
     notes: "notes",
-    status: "status",
     description: "description",
-    mileage_at_intake: "notes", // guard — not a real field; will be dropped
   };
 
   // Only allow a curated set of non-protected fields through the sync endpoint.

@@ -49,13 +49,15 @@ export async function createDiagnosticWorkOrder(
     }
 
     // --- Upsert vehicle -------------------------------------------------
+    const vehicleYear = params.vehicleYear > 0 ? params.vehicleYear : null;
+
     let vehicle = await prisma.vehicle.findFirst({
       where: {
         tenantId,
         clientId: client.id,
         make: params.vehicleMake,
         model: params.vehicleModel,
-        year: params.vehicleYear || 2000,
+        ...(vehicleYear !== null ? { year: vehicleYear } : {}),
       },
       select: { id: true },
     });
@@ -67,7 +69,7 @@ export async function createDiagnosticWorkOrder(
           clientId: client.id,
           make: params.vehicleMake,
           model: params.vehicleModel,
-          year: params.vehicleYear || 2000,
+          year: vehicleYear ?? new Date().getFullYear(),
           vin: params.vin || null,
           mileageIn: params.mileage || null,
         },
@@ -76,7 +78,9 @@ export async function createDiagnosticWorkOrder(
     }
 
     // --- Create diagnostic WorkOrder ------------------------------------
-    const title = `Diagnostic — ${params.vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`;
+    const title = vehicleYear
+      ? `Diagnostic — ${vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`
+      : `Diagnostic — ${params.vehicleMake} ${params.vehicleModel}`;
 
     const workOrder = await prisma.workOrder.create({
       data: {
