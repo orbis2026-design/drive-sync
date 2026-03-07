@@ -50,36 +50,45 @@ comment on column global_vehicles.last_tsb_sync is
 -- Rows that do not conform are rejected at write time.
 -- ---------------------------------------------------------------------------
 
+-- ---------------------------------------------------------------------------
+-- Helper: validate every element of a maintenance_schedule_json array.
+-- Must be IMMUTABLE so Postgres allows it inside a CHECK constraint.
+-- ---------------------------------------------------------------------------
+create or replace function is_valid_maintenance_schedule(j jsonb)
+  returns boolean
+  language sql
+  immutable
+  strict
+as $$
+  select
+    case
+      when jsonb_typeof(j) <> 'array' then false
+      when jsonb_array_length(j) = 0  then true   -- empty array is allowed
+      else (
+        select bool_and(
+          jsonb_typeof(elem) = 'object'
+          and (elem->>'mileage') is not null
+          and (elem->>'mileage')::numeric > 0
+          and jsonb_typeof(elem->'tasks') = 'array'
+          and jsonb_array_length(elem->'tasks') > 0
+        )
+        from jsonb_array_elements(j) as elem
+      )
+    end
+$$;
+
 alter table global_vehicles
   drop constraint if exists chk_maintenance_schedule_json_shape;
 
 alter table global_vehicles
   add constraint chk_maintenance_schedule_json_shape
-  check (
-    jsonb_typeof(maintenance_schedule_json) = 'array'
-    and (
-      -- An empty array is allowed for rows created before Phase 14.
-      jsonb_array_length(maintenance_schedule_json) = 0
-      or (
-        -- Every element must be an object with a positive integer mileage
-        -- and a non-empty tasks array.
-        (
-          select bool_and(
-            jsonb_typeof(elem) = 'object'
-            and (elem->>'mileage') is not null
-            and (elem->>'mileage')::numeric > 0
-            and jsonb_typeof(elem->'tasks') = 'array'
-            and jsonb_array_length(elem->'tasks') > 0
-          )
-          from jsonb_array_elements(maintenance_schedule_json) as elem
-        ) = true
-      )
-    )
-  );
+  check ( is_valid_maintenance_schedule(maintenance_schedule_json) );
 
 comment on constraint chk_maintenance_schedule_json_shape on global_vehicles is
   'Enforces the Phase 14/15 canonical maintenance matrix shape: '
-  '[{ "mileage": <positive int>, "tasks": ["<string>", ...] }].';
+  '[{ "mileage": <positive int>, "tasks": ["<string>", ...] }]. '
+  'Validated via the is_valid_maintenance_schedule() immutable function '
+  'to satisfy the PostgreSQL prohibition on subqueries in CHECK constraints.';
 
 -- Index for fast VIN look-ups (the Lexicon Extractor checks for duplicates
 -- before calling the upstream provider).
