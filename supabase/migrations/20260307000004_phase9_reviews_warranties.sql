@@ -24,11 +24,27 @@ CREATE TABLE IF NOT EXISTS warranties (
   supplier       TEXT,
   installed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   warranty_months INT        NOT NULL DEFAULT 12,
-  expires_at     TIMESTAMPTZ GENERATED ALWAYS AS
-                   (installed_at + (warranty_months * INTERVAL '1 month')) STORED,
+  expires_at     TIMESTAMPTZ,  -- computed by trigger, NOT a generated column
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Trigger function to auto-compute expires_at on INSERT or UPDATE.
+-- TIMESTAMPTZ + INTERVAL is only STABLE (not IMMUTABLE) so a generated column
+-- cannot be used; a BEFORE trigger is the standard PostgreSQL workaround.
+CREATE OR REPLACE FUNCTION compute_warranty_expires_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.expires_at := NEW.installed_at + (NEW.warranty_months * INTERVAL '1 month');
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_warranties_compute_expires
+  BEFORE INSERT OR UPDATE OF installed_at, warranty_months
+  ON warranties
+  FOR EACH ROW
+  EXECUTE FUNCTION compute_warranty_expires_at();
 
 CREATE INDEX IF NOT EXISTS warranties_tenant_id_idx ON warranties(tenant_id);
 CREATE INDEX IF NOT EXISTS warranties_work_order_id_idx ON warranties(work_order_id);

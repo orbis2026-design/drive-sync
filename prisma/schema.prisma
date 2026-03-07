@@ -263,7 +263,7 @@ model Warranty {
   supplier        String?
   installedAt     DateTime @default(now())
   warrantyMonths  Int      @default(12)
-  expiresAt       DateTime
+  expiresAt       DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
