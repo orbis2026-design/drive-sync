@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { use, useState, useRef, useCallback } from "react";
 import { appendStepsToWorkOrder } from "./actions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -34,11 +34,7 @@ export default function VisionPage({
 }: {
   params: Promise<{ vehicleId: string }>;
 }) {
-  // Next.js 15+ passes route params as a Promise — in a Client Component
-  // the params prop is still a plain object at runtime, but the type must
-  // satisfy the Promise<any> constraint enforced by the framework types.
-  // We cast here so that TypeScript is satisfied without adding `use(params)`.
-  const { vehicleId } = params as unknown as { vehicleId: string };
+  const { vehicleId } = use(params);
 
   const [preview, setPreview] = useState<string | null>(null);
   const [openIndex, setOpenIndex] = useState<number | null>(null);

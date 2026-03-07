@@ -253,7 +253,15 @@ function AddPartForm({ onAdd }: AddPartFormProps) {
             type="checkbox"
             className="sr-only"
             checked={customerSupplied}
-            onChange={(e) => setCustomerSupplied(e.target.checked)}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setCustomerSupplied(checked);
+              // Clear pricing fields when customer-supplied — price is $0
+              if (checked) {
+                setWholesaleCents("");
+                setRetailCents("");
+              }
+            }}
           />
           <div
             className={[
