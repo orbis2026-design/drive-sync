@@ -61,7 +61,7 @@ comment on column clients.is_commercial_fleet is
 --    vehicle's oil capacity stored in global_vehicles.maintenance_schedule_json.
 -- ---------------------------------------------------------------------------
 create table if not exists consumables (
-  id                  uuid        primary key default uuid_generate_v4(),
+  id                  uuid        primary key default gen_random_uuid(),
   tenant_id           uuid        not null references tenants (id) on delete cascade,
   name                text        not null,       -- e.g. "5W-30 Synthetic"
   unit                text        not null,       -- e.g. "Quart", "Can", "Sheet"

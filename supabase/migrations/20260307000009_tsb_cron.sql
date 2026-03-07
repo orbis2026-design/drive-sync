@@ -128,7 +128,7 @@ begin
     perform cron.schedule(
       'tsb-sync-biannual',
       '0 2 1 1,7 *',   -- 02:00 UTC on 1 Jan and 1 Jul (every 6 months)
-      $$call run_tsb_sync();$$
+      $cmd$call run_tsb_sync();$cmd$
     );
   exception when others then
     raise notice 'TSB cron job could not be scheduled: %. Migration continues without it.', sqlerrm;
