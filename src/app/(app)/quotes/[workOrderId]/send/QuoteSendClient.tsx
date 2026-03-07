@@ -5,10 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTransition, useState } from "react";
 import { sendQuote, type SendPageData, type SelectedPart } from "../actions";
 import { TAX_RATE } from "../constants";
-
-// Fallback to a placeholder domain when the env variable is not set.
-const PORTAL_BASE_URL =
-  process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? "https://app.domain.com";
+import { NativeSmsButton } from "@/components/sms-button";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -152,8 +149,10 @@ interface SMSPreviewCardProps {
 }
 
 function SMSPreviewCard({ clientName }: SMSPreviewCardProps) {
+  const portalBaseUrl =
+    process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? "https://app.domain.com";
   const previewToken = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx";
-  const previewUrl = `${PORTAL_BASE_URL}/portal/${previewToken}`;
+  const previewUrl = `${portalBaseUrl}/portal/${previewToken}`;
   const previewBody =
     `Your mechanic has finished diagnosing your vehicle. ` +
     `Tap here to review and approve the repair quote: ${previewUrl}`;
@@ -189,7 +188,7 @@ function SMSPreviewCard({ clientName }: SMSPreviewCardProps) {
       </div>
 
       <p className="text-[10px] text-gray-600 text-center">
-        Sent via Twilio · A unique link is generated per quote
+        A unique approval link is generated per quote
       </p>
     </section>
   );
@@ -208,6 +207,7 @@ export function QuoteSendClient({ data }: QuoteSendClientProps) {
   const [isSending, startSendTransition] = useTransition();
   const [sendError, setSendError] = useState<string | null>(null);
   const [isSent, setIsSent] = useState(false);
+  const [smsReady, setSmsReady] = useState<{ portalUrl: string; smsBody: string } | null>(null);
 
   // Recalculate totals from the authoritative locked values.
   const partsSubtotalCents = data.partsCents;
@@ -232,9 +232,7 @@ export function QuoteSendClient({ data }: QuoteSendClientProps) {
       }
 
       setIsSent(true);
-      // Brief pause so the mechanic can see the success state, then redirect.
-      await new Promise((r) => setTimeout(r, 1400));
-      router.push("/clients");
+      setSmsReady({ portalUrl: result.portalUrl, smsBody: result.smsBody });
     });
   }
 
@@ -307,19 +305,34 @@ export function QuoteSendClient({ data }: QuoteSendClientProps) {
           </p>
         )}
 
-        {/* ── Send button ───────────────────────────────────────────────── */}
-        <button
-          type="button"
-          onClick={handleSend}
-          disabled={isSending || isSent}
-          aria-busy={isSending}
-          className={[
-            "relative flex w-full items-center justify-center gap-3",
-            "min-h-[80px] rounded-2xl",
-            "text-xl font-black uppercase tracking-widest",
-            isSent
-              ? "bg-success-400 text-gray-950 shadow-[0_0_40px_12px_rgba(74,222,128,0.55)]"
-              : isSending
+        {smsReady ? (
+          /* ── Native SMS button — opens the device SMS app ──────────────── */
+          <div className="space-y-3">
+            <NativeSmsButton
+              phoneNumber={data.client.phone}
+              messageBody={smsReady.smsBody}
+              label="Open SMS App"
+            />
+            <button
+              type="button"
+              onClick={() => router.push("/clients")}
+              className="w-full text-center text-xs text-gray-500 hover:text-gray-300 transition-colors py-2"
+            >
+              Done — back to Clients
+            </button>
+          </div>
+        ) : (
+          /* ── Prepare link button — calls the server action ──────────────── */
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={isSending}
+            aria-busy={isSending}
+            className={[
+              "relative flex w-full items-center justify-center gap-3",
+              "min-h-[80px] rounded-2xl",
+              "text-xl font-black uppercase tracking-widest",
+              isSending
                 ? "bg-brand-400 text-gray-950 opacity-70 cursor-not-allowed shadow-none"
                 : [
                     "bg-brand-400 text-gray-950",
@@ -327,30 +340,26 @@ export function QuoteSendClient({ data }: QuoteSendClientProps) {
                     "hover:bg-brand-300 hover:shadow-[0_0_56px_16px_rgba(250,204,21,0.70)]",
                     "active:scale-[0.98]",
                   ].join(" "),
-            "transition-all duration-300",
-            "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900",
-          ].join(" ")}
-        >
-          {isSent ? (
-            <>
-              <span aria-hidden="true">✓</span>
-              Sent! Redirecting…
-            </>
-          ) : isSending ? (
-            <>
-              <span
-                className="h-6 w-6 rounded-full border-[3px] border-black/30 border-t-black animate-spin"
-                aria-hidden="true"
-              />
-              Sending…
-            </>
-          ) : (
-            <>
-              <span aria-hidden="true">📱</span>
-              Send Quote via SMS
-            </>
-          )}
-        </button>
+              "transition-all duration-300",
+              "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900",
+            ].join(" ")}
+          >
+            {isSending ? (
+              <>
+                <span
+                  className="h-6 w-6 rounded-full border-[3px] border-black/30 border-t-black animate-spin"
+                  aria-hidden="true"
+                />
+                Preparing…
+              </>
+            ) : (
+              <>
+                <span aria-hidden="true">🔗</span>
+                Prepare Quote Link
+              </>
+            )}
+          </button>
+        )}
 
         <p className="text-[10px] text-gray-600 text-center pb-6">
           The client will receive a secure one-time link to review and approve

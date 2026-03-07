@@ -27,6 +27,9 @@ create table if not exists tenants (
   slug        text        not null unique,          -- URL-friendly identifier
   email       text        unique,
   phone       text,
+  -- Feature flags for optional product modules (Issue #49).
+  -- Shape: { "inventory": bool, "marketing": bool, "fleet": bool }
+  features_json jsonb     not null default '{"inventory":true,"marketing":true,"fleet":true}'::jsonb,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );

@@ -6,6 +6,12 @@ export const metadata = {
 
 const SETTINGS_ITEMS = [
   {
+    href: "/settings/preferences",
+    icon: "🎛️",
+    title: "Feature Preferences",
+    description: "Toggle Inventory, Marketing, and Fleet features on or off.",
+  },
+  {
     href: "/settings/billing",
     icon: "💳",
     title: "Billing & Subscription",
