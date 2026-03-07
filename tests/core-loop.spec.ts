@@ -126,7 +126,7 @@ test.describe("Core Loop — Wrench Workflow", () => {
     await page.waitForLoadState("domcontentloaded");
 
     await expect(
-      page.getByText(/Link Unavailable|Invalid or expired/i),
+      page.getByRole("heading", { name: /Link Unavailable/i }),
     ).toBeVisible();
   });
 
