@@ -32,9 +32,9 @@ function fileToBase64(file: File): Promise<string> {
 export default function VisionPage({
   params,
 }: {
-  params: Promise<{ vehicleId: string }>;
+  params: Promise<{ workOrderId: string }>;
 }) {
-  const { vehicleId } = use(params);
+  const { workOrderId } = use(params);
 
   const [preview, setPreview] = useState<string | null>(null);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
@@ -68,7 +68,7 @@ export default function VisionPage({
           body: JSON.stringify({
             base64Image: b64,
             mimeType: fileMimeType,
-            workOrderId: vehicleId,
+            workOrderId: workOrderId,
           }),
         });
 
@@ -88,7 +88,7 @@ export default function VisionPage({
         setStatus("error");
       }
     },
-    [vehicleId]
+    [workOrderId]
   );
 
   // ─── Edit helpers ──────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ export default function VisionPage({
     if (!editedSteps.length) return;
     setStatus("appending");
 
-    const result = await appendStepsToWorkOrder(vehicleId, editedSteps);
+    const result = await appendStepsToWorkOrder(workOrderId, editedSteps);
 
     if ("error" in result) {
       setErrorMsg(result.error);
@@ -123,7 +123,7 @@ export default function VisionPage({
     } else {
       setStatus("appended");
     }
-  }, [editedSteps, vehicleId]);
+  }, [editedSteps, workOrderId]);
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
@@ -281,7 +281,7 @@ export default function VisionPage({
         {/* Success banner */}
         {status === "appended" && (
           <div className="bg-green-900/50 border border-green-700 rounded-xl p-4 text-green-300 text-sm font-semibold text-center">
-            ✅ Repair steps appended to Work Order #{vehicleId}
+            ✅ Repair steps appended to Work Order #{workOrderId}
           </div>
         )}
       </div>

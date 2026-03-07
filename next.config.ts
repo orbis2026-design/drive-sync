@@ -22,8 +22,12 @@ const withPWA = withPWAInit({
 const nextConfig: NextConfig = {
   // Silence the Turbopack/webpack conflict from the PWA plugin.
   // Next.js 16 defaults to Turbopack; setting an empty turbopack config
-  // acknowledges this and prevents the build error.
-  turbopack: {},
+  // acknowledges this and prevents the build error. The `root` is set
+  // explicitly to the project directory to suppress the multiple-lockfile
+  // warning that occurs when a pnpm-lock.yaml exists outside the project.
+  turbopack: {
+    root: __dirname,
+  },
   images: {
     // Prefer modern formats for smaller file sizes on all devices.
     formats: ["image/avif", "image/webp"],

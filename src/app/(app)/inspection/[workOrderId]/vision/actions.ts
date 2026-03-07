@@ -5,7 +5,7 @@ import type { RepairStep } from "./page";
 
 /**
  * Appends the AI-generated repair steps to the voice_note_json field of a
- * work order identified by its ID (passed as the [vehicleId] route param in
+ * work order identified by its ID (passed as the [workOrderId] route param in
  * the context of the AI Visual Diagnostics page).
  */
 export async function appendStepsToWorkOrder(
