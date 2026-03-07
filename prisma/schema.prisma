@@ -81,6 +81,11 @@ model GlobalVehicle {
   yearEnd                 Int?
   // JSON array of MaintenanceItem: { service, intervalMiles?, atMileage? }
   maintenanceScheduleJson Json     @default("[]")
+  // Fluid capacity & OEM oil weight (Issue #41)
+  oilCapacityQts          Float?   // Engine oil capacity in US quarts
+  oilWeightOem            String?  // e.g. "0W-20 Full Synthetic"
+  // Array of trim/engine combos when VIN returns multiple possibilities
+  submodelOptionsJson     Json     @default("[]")
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
@@ -135,7 +140,15 @@ model WorkOrder {
   laborCents    Int             @default(0)
   partsCents    Int             @default(0)
   // Wholesale cost of parts (COGS). When null, a 55% markup ratio is assumed.
-  partsCostCents Int?
+  partsCostCents        Int?
+  // When true, parts are billed at cost; liability flag shown on Work Order.
+  customerSuppliedParts Boolean  @default(false)
+  // Change-order delta parts (SelectedPart[]) added after initial approval.
+  deltaPartsJson        Json?
+  // Token for client to review & sign the delta change order.
+  deltaApprovalToken    String?  @unique
+  // True once the mandatory pre-inspection walkaround is completed.
+  preCheckComplete      Boolean  @default(false)
   approvalToken String?         @unique
   scheduledAt   DateTime?       // Calendar appointment timestamp
   closedAt      DateTime?
@@ -157,6 +170,7 @@ enum WorkOrderStatus {
   INTAKE
   ACTIVE
   PENDING_APPROVAL
+  BLOCKED_WAITING_APPROVAL // Mechanic awaiting client sign-off on a change order
   COMPLETE
   INVOICED
   PAID

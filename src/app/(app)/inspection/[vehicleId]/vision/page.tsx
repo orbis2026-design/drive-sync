@@ -32,9 +32,13 @@ function fileToBase64(file: File): Promise<string> {
 export default function VisionPage({
   params,
 }: {
-  params: { vehicleId: string };
+  params: Promise<{ vehicleId: string }>;
 }) {
-  const { vehicleId } = params;
+  // Next.js 15+ passes route params as a Promise — in a Client Component
+  // the params prop is still a plain object at runtime, but the type must
+  // satisfy the Promise<any> constraint enforced by the framework types.
+  // We cast here so that TypeScript is satisfied without adding `use(params)`.
+  const { vehicleId } = params as unknown as { vehicleId: string };
 
   const [preview, setPreview] = useState<string | null>(null);
   const [openIndex, setOpenIndex] = useState<number | null>(null);

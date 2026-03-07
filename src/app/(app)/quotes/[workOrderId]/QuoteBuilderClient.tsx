@@ -568,6 +568,18 @@ export function QuoteBuilderClient({ data }: QuoteBuilderClientProps) {
             }}
           />
 
+          {/* ── Customer-supplied liability warning (Issue #45) ────────── */}
+          {customerSuppliedParts && (
+            <div className="flex items-start gap-2 rounded-xl bg-danger-500/10 border border-danger-500/40 px-4 py-3">
+              <span className="text-lg flex-shrink-0" aria-hidden="true">⚠️</span>
+              <p className="text-xs text-danger-300 font-medium leading-snug">
+                <strong className="text-danger-400">No Warranty</strong> provided
+                for labor or failure of Customer-Supplied components. This flag
+                will appear prominently on the Work Order and client invoice.
+              </p>
+            </div>
+          )}
+
           {/* ── Parts ledger ───────────────────────────────────────────── */}
           <section aria-labelledby="parts-heading">
             <div className="flex items-center justify-between mb-3">

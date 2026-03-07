@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { BLAST_AUDIENCES } from "./constants";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -16,38 +17,7 @@ export type QueuedMessage = {
   client: { firstName: string; lastName: string } | null;
 };
 
-export type BlastAudience = {
-  label: string;
-  value: string;
-  description: string;
-};
-
-// ---------------------------------------------------------------------------
-// Blast campaign audience options
-// ---------------------------------------------------------------------------
-
-export const BLAST_AUDIENCES: BlastAudience[] = [
-  {
-    label: "Inactive 6+ Months",
-    value: "INACTIVE_6M",
-    description: "Clients without a visit in the last 6 months",
-  },
-  {
-    label: "Inactive 3+ Months",
-    value: "INACTIVE_3M",
-    description: "Clients without a visit in the last 3 months",
-  },
-  {
-    label: "Oil Change Due",
-    value: "OIL_DUE",
-    description: "Clients whose vehicle is likely due for an oil change",
-  },
-  {
-    label: "All Clients",
-    value: "ALL",
-    description: "Send to every client on file",
-  },
-];
+export type { BlastAudience } from "./constants";
 
 // ---------------------------------------------------------------------------
 // Simulated Twilio SMS helper

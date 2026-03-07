@@ -93,7 +93,14 @@ export async function fetchCalendarData(
       }),
     ]);
 
-    const scheduled: ScheduledJob[] = scheduledRaw
+    const scheduled: ScheduledJob[] = (scheduledRaw as Array<{
+      id: string;
+      title: string;
+      scheduledAt: Date | null;
+      status: string;
+      client: { firstName: string; lastName: string; zipCode?: string | null };
+      vehicle: { make: string; model: string; year: number };
+    }>)
       .filter((w) => w.scheduledAt !== null)
       .map((w) => ({
         id: w.id,
@@ -104,12 +111,19 @@ export async function fetchCalendarData(
         client: {
           firstName: w.client.firstName,
           lastName: w.client.lastName,
-          zipCode: w.client.zipCode,
+          zipCode: w.client.zipCode ?? null,
         },
         vehicle: w.vehicle,
       }));
 
-    const backlog: BacklogJob[] = backlogRaw.map((w) => ({
+    const backlog: BacklogJob[] = (backlogRaw as Array<{
+      id: string;
+      title: string;
+      status: string;
+      client: { firstName: string; lastName: string };
+      vehicle: { make: string; model: string; year: number };
+      createdAt: Date;
+    }>).map((w) => ({
       id: w.id,
       title: w.title,
       status: w.status,

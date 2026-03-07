@@ -7,6 +7,7 @@ import {
   type DecodeVinResult,
   type DecodeVinError,
   type MaintenanceInterval,
+  type SubmodelOption,
 } from "./actions";
 
 // ---------------------------------------------------------------------------
@@ -174,16 +175,163 @@ function ScheduleItem({ item }: { item: MaintenanceInterval }) {
 }
 
 // ---------------------------------------------------------------------------
+// Disambiguation Modal — shown when multiple engine/trim options exist
+// ---------------------------------------------------------------------------
+
+interface DisambiguationModalProps {
+  options: SubmodelOption[];
+  make: string;
+  model: string;
+  year: number;
+  onSelect: (option: SubmodelOption) => void;
+}
+
+function DisambiguationModal({
+  options,
+  make,
+  model,
+  year,
+  onSelect,
+}: DisambiguationModalProps) {
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm"
+        aria-hidden="true"
+      />
+
+      {/* Modal */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="disambig-title"
+        className={[
+          "fixed inset-x-4 top-1/2 -translate-y-1/2 z-[60]",
+          "sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-lg",
+          "rounded-3xl bg-gray-900 border-2 border-brand-400/60",
+          "shadow-[0_0_60px_rgba(250,204,21,0.25)]",
+          "p-6 space-y-5",
+        ].join(" ")}
+      >
+        <div className="text-center space-y-1">
+          <div className="text-3xl" aria-hidden="true">⚠️</div>
+          <h2
+            id="disambig-title"
+            className="text-xl font-black text-white tracking-tight"
+          >
+            Multiple Trims Found
+          </h2>
+          <p className="text-sm text-gray-400">
+            {year} {make} {model} — select the exact engine/trim to load
+            correct fluid capacities.
+          </p>
+        </div>
+
+        {/* Option buttons — oversized touch targets for shop floor use */}
+        <div className="space-y-3">
+          {options.map((opt) => (
+            <button
+              key={`${opt.engine}-${opt.trim}`}
+              type="button"
+              onClick={() => onSelect(opt)}
+              className={[
+                "w-full rounded-2xl border-2 border-gray-700",
+                "bg-gray-800 hover:bg-gray-700 hover:border-brand-400/60",
+                "active:scale-[0.98]",
+                "px-5 py-4 text-left",
+                "transition-all duration-150",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400",
+              ].join(" ")}
+            >
+              <p className="text-base font-black text-white leading-snug">
+                {opt.engine}
+              </p>
+              <p className="text-sm text-gray-400 mt-0.5">{opt.trim} Trim</p>
+              <div className="flex gap-4 mt-2">
+                <span className="text-xs text-brand-400 font-bold">
+                  🛢 {opt.oil_capacity_qts} qt
+                </span>
+                <span className="text-xs text-gray-500">
+                  {opt.oil_weight_oem}
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <p className="text-center text-[10px] text-gray-700">
+          This selection determines OEM fluid capacities on the Vehicle Blueprint.
+        </p>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Fluid Specs Banner — shown on the Vehicle Blueprint
+// ---------------------------------------------------------------------------
+
+interface FluidSpecsBannerProps {
+  oilCapacityQts: number | null;
+  oilWeightOem: string | null;
+  resolvedOption?: SubmodelOption | null;
+}
+
+function FluidSpecsBanner({
+  oilCapacityQts,
+  oilWeightOem,
+  resolvedOption,
+}: FluidSpecsBannerProps) {
+  const capacity = resolvedOption?.oil_capacity_qts ?? oilCapacityQts;
+  const weight = resolvedOption?.oil_weight_oem ?? oilWeightOem;
+
+  if (!capacity && !weight) return null;
+
+  return (
+    <div className="rounded-2xl border-2 border-brand-400/40 bg-brand-400/5 px-5 py-4">
+      <h3 className="text-xs font-bold uppercase tracking-widest text-brand-400 mb-3">
+        🛢 OEM Fluid Requirements
+      </h3>
+      <div className="grid grid-cols-2 gap-3">
+        {capacity !== null && capacity !== undefined && (
+          <div className="rounded-xl bg-gray-800 px-4 py-3">
+            <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-1">
+              Oil Capacity
+            </p>
+            <p className="text-xl font-black text-brand-400">{capacity} qt</p>
+          </div>
+        )}
+        {weight && (
+          <div className="rounded-xl bg-gray-800 px-4 py-3">
+            <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-1">
+              OEM Oil Weight
+            </p>
+            <p className="text-sm font-black text-white leading-snug">{weight}</p>
+          </div>
+        )}
+      </div>
+      {resolvedOption && (
+        <p className="mt-3 text-xs text-gray-500">
+          Engine: {resolvedOption.engine} · Trim: {resolvedOption.trim}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Bottom Sheet — Vehicle Blueprint + TenantVehicle form
 // ---------------------------------------------------------------------------
 
 interface BottomSheetProps {
   result: DecodeVinResult;
   vin: string;
+  resolvedSubmodel: SubmodelOption | null;
   onClose: () => void;
 }
 
-function BottomSheet({ result, vin, onClose }: BottomSheetProps) {
+function BottomSheet({ result, vin, resolvedSubmodel, onClose }: BottomSheetProps) {
   const { globalVehicle, cacheHit } = result;
 
   // Tenant vehicle form state
@@ -265,10 +413,12 @@ function BottomSheet({ result, vin, onClose }: BottomSheetProps) {
                 {globalVehicle.year} {globalVehicle.make}{" "}
                 {globalVehicle.model}
               </h2>
-              {globalVehicle.engine && (
+              {(resolvedSubmodel || globalVehicle.engine) && (
                 <p className="text-sm text-gray-400 mt-0.5">
-                  {globalVehicle.engine}
-                  {globalVehicle.trim ? ` · ${globalVehicle.trim}` : ""}
+                  {resolvedSubmodel?.engine ?? globalVehicle.engine}
+                  {(resolvedSubmodel?.trim ?? globalVehicle.trim)
+                    ? ` · ${resolvedSubmodel?.trim ?? globalVehicle.trim}`
+                    : ""}
                 </p>
               )}
               <p className="mt-2 text-xs font-mono text-gray-600 uppercase tracking-widest">
@@ -286,6 +436,13 @@ function BottomSheet({ result, vin, onClose }: BottomSheetProps) {
               {cacheHit ? "Cached" : "New"}
             </span>
           </div>
+
+          {/* ── OEM Fluid Requirements ────────────────────────────────── */}
+          <FluidSpecsBanner
+            oilCapacityQts={globalVehicle.oil_capacity_qts}
+            oilWeightOem={globalVehicle.oil_weight_oem}
+            resolvedOption={resolvedSubmodel}
+          />
 
           {/* Maintenance schedule */}
           <section aria-labelledby="schedule-heading">
@@ -461,17 +618,27 @@ async function decodeVinAction(
 export default function IntakePage() {
   const [vin, setVin] = useState("");
   const [dismissed, setDismissed] = useState(false);
+  const [resolvedSubmodel, setResolvedSubmodel] =
+    useState<SubmodelOption | null>(null);
   const [state, formAction, pending] = useActionState<FormState, FormData>(
     decodeVinAction,
     null,
   );
   const formRef = useRef<HTMLFormElement>(null);
 
-  // Derive sheet visibility: show when we have a valid result and not dismissed
-  const sheetOpen = isSuccess(state) && !dismissed;
+  // Disambiguation modal: shown when multiple trims exist and user hasn't picked yet
+  const needsDisambig =
+    isSuccess(state) &&
+    !dismissed &&
+    (state.submodelOptions?.length ?? 0) > 1 &&
+    resolvedSubmodel === null;
+
+  // Sheet: shown after disambiguation (or immediately if only one option)
+  const sheetOpen = isSuccess(state) && !dismissed && !needsDisambig;
 
   function handleReset() {
     setDismissed(true);
+    setResolvedSubmodel(null);
     setVin("");
     formRef.current?.reset();
   }
@@ -539,9 +706,25 @@ export default function IntakePage() {
         windshield, or on the door jamb sticker.
       </p>
 
+      {/* ── Disambiguation Modal ───────────────────────────────────────────── */}
+      {needsDisambig && isSuccess(state) && (
+        <DisambiguationModal
+          options={state.submodelOptions!}
+          make={state.globalVehicle.make}
+          model={state.globalVehicle.model}
+          year={state.globalVehicle.year}
+          onSelect={(opt) => setResolvedSubmodel(opt)}
+        />
+      )}
+
       {/* ── Bottom Sheet ───────────────────────────────────────────────────── */}
       {sheetOpen && isSuccess(state) && (
-        <BottomSheet result={state} vin={vin} onClose={handleReset} />
+        <BottomSheet
+          result={state}
+          vin={vin}
+          resolvedSubmodel={resolvedSubmodel}
+          onClose={handleReset}
+        />
       )}
     </div>
   );

@@ -14,6 +14,14 @@ export interface MaintenanceInterval {
   parts: string[];
 }
 
+/** One possible engine/trim combination returned by the VIN decoder. */
+export interface SubmodelOption {
+  engine: string;
+  trim: string;
+  oil_capacity_qts: number;
+  oil_weight_oem: string;
+}
+
 export interface GlobalVehicleData {
   id: string;
   year: number;
@@ -21,6 +29,9 @@ export interface GlobalVehicleData {
   model: string;
   engine: string | null;
   trim: string | null;
+  oil_capacity_qts: number | null;
+  oil_weight_oem: string | null;
+  submodel_options_json: SubmodelOption[];
   maintenance_schedule_json: MaintenanceInterval[];
 }
 
@@ -28,6 +39,11 @@ export interface DecodeVinResult {
   globalVehicle: GlobalVehicleData;
   /** true when the record already existed in global_vehicles */
   cacheHit: boolean;
+  /**
+   * When the NHTSA API returns more than one possible engine/trim, this list
+   * is populated and the UI must show a Disambiguation Modal before proceeding.
+   */
+  submodelOptions?: SubmodelOption[];
 }
 
 export interface DecodeVinError {
@@ -126,6 +142,115 @@ function simulateNhtsaDecode(vin: string): NhtsaResult {
   const model = GENERIC_MODELS[make] ?? "Unknown Model";
   const year = decodeModelYear(vin);
   return { year, make, model };
+}
+
+// ---------------------------------------------------------------------------
+// Step B — Simulate multiple-trim disambiguation
+// ---------------------------------------------------------------------------
+// Some VINs can map to multiple engine/trim combos. We simulate this by
+// returning multiple options for Honda Civic and Toyota Camry, which are
+// historically offered with multiple engine choices.
+// ---------------------------------------------------------------------------
+
+const SUBMODEL_VARIANTS: Record<string, SubmodelOption[]> = {
+  "Honda:Civic": [
+    {
+      engine: "1.5L Turbo 4-Cyl",
+      trim: "Sport",
+      oil_capacity_qts: 3.4,
+      oil_weight_oem: "0W-20 Full Synthetic",
+    },
+    {
+      engine: "2.0L Naturally Aspirated 4-Cyl",
+      trim: "Si",
+      oil_capacity_qts: 4.4,
+      oil_weight_oem: "0W-20 Full Synthetic",
+    },
+  ],
+  "Toyota:Camry": [
+    {
+      engine: "2.5L 4-Cyl",
+      trim: "LE",
+      oil_capacity_qts: 4.8,
+      oil_weight_oem: "0W-16 Full Synthetic",
+    },
+    {
+      engine: "3.5L V6",
+      trim: "XSE V6",
+      oil_capacity_qts: 6.4,
+      oil_weight_oem: "0W-20 Full Synthetic",
+    },
+  ],
+  "Ford:F-150": [
+    {
+      engine: "3.5L EcoBoost V6",
+      trim: "XLT",
+      oil_capacity_qts: 6.0,
+      oil_weight_oem: "5W-30 Full Synthetic",
+    },
+    {
+      engine: "5.0L V8",
+      trim: "Lariat",
+      oil_capacity_qts: 7.7,
+      oil_weight_oem: "5W-20 Full Synthetic",
+    },
+  ],
+};
+
+/** Default single-option fluid specs for makes that don't have multi-trim variants. */
+const DEFAULT_FLUID_SPECS: Record<string, SubmodelOption> = {
+  "Chevrolet:Silverado 1500": {
+    engine: "5.3L V8 EcoTec3",
+    trim: "LTZ",
+    oil_capacity_qts: 6.0,
+    oil_weight_oem: "0W-20 Full Synthetic",
+  },
+  "Nissan:Altima": {
+    engine: "2.5L 4-Cyl",
+    trim: "S",
+    oil_capacity_qts: 4.9,
+    oil_weight_oem: "5W-30 Full Synthetic",
+  },
+  "Volkswagen:Jetta": {
+    engine: "1.4L Turbo 4-Cyl",
+    trim: "S",
+    oil_capacity_qts: 4.5,
+    oil_weight_oem: "5W-40 Full Synthetic",
+  },
+  "Chrysler:300": {
+    engine: "3.6L Pentastar V6",
+    trim: "Touring",
+    oil_capacity_qts: 5.9,
+    oil_weight_oem: "5W-20 Full Synthetic",
+  },
+  "Dodge:Charger": {
+    engine: "3.6L Pentastar V6",
+    trim: "SXT",
+    oil_capacity_qts: 5.9,
+    oil_weight_oem: "5W-20 Full Synthetic",
+  },
+  "Tesla:Model 3": {
+    engine: "Electric Dual Motor",
+    trim: "Long Range AWD",
+    oil_capacity_qts: 0,
+    oil_weight_oem: "N/A (Electric)",
+  },
+  "Lincoln:Navigator": {
+    engine: "3.5L EcoBoost V6",
+    trim: "Reserve",
+    oil_capacity_qts: 6.0,
+    oil_weight_oem: "5W-30 Full Synthetic",
+  },
+};
+
+function simulateSubmodelOptions(make: string, model: string): SubmodelOption[] {
+  const key = `${make}:${model}`;
+  return SUBMODEL_VARIANTS[key] ?? [];
+}
+
+function simulateSingleSubmodel(make: string, model: string): SubmodelOption | null {
+  const key = `${make}:${model}`;
+  return DEFAULT_FLUID_SPECS[key] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -254,11 +379,15 @@ export async function decodeVin(
   // ── Step A: Simulate NHTSA VIN decode ────────────────────────────────────
   const { year, make, model } = simulateNhtsaDecode(cleaned);
 
+  // ── Step A2: Check whether this VIN maps to multiple engine/trim combos ──
+  const submodelOptions = simulateSubmodelOptions(make, model);
+  const hasMultipleSubmodels = submodelOptions.length > 1;
+
   // ── Step B: Query global_vehicles (cache lookup) ──────────────────────────
   const db = createServerClient();
   const { data: existing, error: queryError } = await db
     .from("global_vehicles")
-    .select("id, year, make, model, engine, trim, maintenance_schedule_json")
+    .select("id, year, make, model, engine, trim, oil_capacity_qts, oil_weight_oem, submodel_options_json, maintenance_schedule_json")
     .eq("year", year)
     .eq("make", make)
     .eq("model", model)
@@ -274,11 +403,13 @@ export async function decodeVin(
     return {
       globalVehicle: existing as GlobalVehicleData,
       cacheHit: true,
+      ...(hasMultipleSubmodels ? { submodelOptions } : {}),
     };
   }
 
   // ── Step D: Cache MISS — simulate CarMD + insert into global_vehicles ─────
   const maintenanceSchedule = simulateCarMdSchedule(year, make, model);
+  const singleSubmodel = simulateSingleSubmodel(make, model);
 
   const adminDb = createAdminClient();
   const { data: inserted, error: insertError } = await adminDb
@@ -289,10 +420,13 @@ export async function decodeVin(
       model,
       engine: null,
       trim: null,
+      oil_capacity_qts: singleSubmodel?.oil_capacity_qts ?? null,
+      oil_weight_oem: singleSubmodel?.oil_weight_oem ?? null,
+      submodel_options_json: hasMultipleSubmodels ? submodelOptions : [],
       maintenance_schedule_json: maintenanceSchedule,
       known_faults_json: [],
     })
-    .select("id, year, make, model, engine, trim, maintenance_schedule_json")
+    .select("id, year, make, model, engine, trim, oil_capacity_qts, oil_weight_oem, submodel_options_json, maintenance_schedule_json")
     .single();
 
   if (insertError) {
@@ -302,6 +436,7 @@ export async function decodeVin(
   return {
     globalVehicle: inserted as GlobalVehicleData,
     cacheHit: false,
+    ...(hasMultipleSubmodels ? { submodelOptions } : {}),
   };
 }
 
