@@ -7,7 +7,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ---------------------------------------------------------------------------
@@ -47,24 +46,49 @@ model Client {
 }
 
 // ---------------------------------------------------------------------------
-// Vehicle – belongs to a Client and a Tenant.
+// GlobalVehicle – shared library of vehicle makes/models with OEM maintenance
+// schedules. Not tenant-specific; a single row covers all year-range variants.
+// ---------------------------------------------------------------------------
+model GlobalVehicle {
+  id                      String   @id @default(cuid())
+  make                    String
+  model                   String
+  yearStart               Int
+  yearEnd                 Int?
+  // JSON array of MaintenanceItem: { service, intervalMiles?, atMileage? }
+  maintenanceScheduleJson Json     @default("[]")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  vehicles Vehicle[]
+
+  @@unique([make, model, yearStart])
+  @@index([make, model])
+}
+
+// ---------------------------------------------------------------------------
+// Vehicle – belongs to a Client and a Tenant (TenantVehicles).
+// Optionally linked to a GlobalVehicle row for OEM maintenance data.
 // ---------------------------------------------------------------------------
 model Vehicle {
-  id        String   @id @default(cuid())
-  tenantId  String
-  clientId  String
-  make      String
-  model     String
-  year      Int
-  vin       String?
-  plate     String?
-  color     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(cuid())
+  tenantId        String
+  clientId        String
+  globalVehicleId String?
+  make            String
+  model           String
+  year            Int
+  vin             String?
+  plate           String?
+  color           String?
+  mileageIn       Int?     // Current odometer reading entered by shop
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  client     Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  workOrders WorkOrder[]
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client        Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  globalVehicle GlobalVehicle? @relation(fields: [globalVehicleId], references: [id])
+  workOrders    WorkOrder[]
 
   @@index([tenantId])
   @@index([clientId])
