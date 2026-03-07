@@ -12,6 +12,8 @@
     "@ducanh2912/next-pwa": "^10.2.9",
     "@prisma/adapter-pg": "^7.4.2",
     "@prisma/client": "^7.4.2",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
     "@supabase/supabase-js": "^2.98.0",
     "@tailwindcss/postcss": "^4",
     "@types/pg": "^8.18.0",
@@ -26,7 +28,9 @@
     "react-dom": "19.2.3",
     "react-signature-canvas": "^1.1.0-alpha.2",
     "recharts": "^3.8.0",
-    "tailwindcss": "^4"
+    "stripe": "^20.4.1",
+    "tailwindcss": "^4",
+    "three": "^0.183.2"
   },
   "devDependencies": {
     "@types/node": "^20",
