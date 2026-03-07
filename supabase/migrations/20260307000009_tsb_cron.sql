@@ -26,7 +26,7 @@ create extension if not exists http      with schema extensions;
 create or replace function get_top_referenced_global_vehicle_ids(
   p_limit integer default 100
 )
-returns table (global_vehicle_id text, reference_count bigint)
+returns table (global_vehicle_id uuid, reference_count bigint)
 language sql stable security definer
 as $$
   -- Join tenant_vehicles → global_vehicles, rank by how many tenant rows
@@ -34,7 +34,7 @@ as $$
   select
     v.global_vehicle_id,
     count(*) as reference_count
-  from vehicles v
+  from tenant_vehicles v
   where v.global_vehicle_id is not null
   group by v.global_vehicle_id
   order by reference_count desc
@@ -56,7 +56,7 @@ declare
   rec          record;
   edge_fn_url  text;
   payload      jsonb;
-  gv_ids       text[] := '{}';
+  gv_ids       uuid[] := '{}';
 begin
   -- Collect the top-100 global vehicle IDs.
   select array_agg(t.global_vehicle_id order by t.reference_count desc)
