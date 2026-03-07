@@ -7,6 +7,8 @@ import {
   type QuoteData,
   type SelectedPart,
   type QuoteCalculation,
+  type DueService,
+  formatMilesUntilDue,
 } from "./actions";
 
 import { TAX_RATE } from "./constants";
@@ -479,6 +481,83 @@ function StickyTotalBar({
 }
 
 // ---------------------------------------------------------------------------
+// DueServicesSection — Manufacturer Recommended Due Services (Issue #57)
+// ---------------------------------------------------------------------------
+
+interface DueServicesSectionProps {
+  dueServices: DueService[];
+  addedTasks: string[];
+  onToggle: (task: string) => void;
+}
+
+function DueServicesSection({
+  dueServices,
+  addedTasks,
+  onToggle,
+}: DueServicesSectionProps) {
+  if (dueServices.length === 0) return null;
+
+  return (
+    <section aria-labelledby="due-services-heading">
+      <div className="rounded-2xl border-2 border-brand-400/40 bg-brand-400/5 px-5 py-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xl" aria-hidden="true">🔧</span>
+          <h2
+            id="due-services-heading"
+            className="text-sm font-black text-brand-400 uppercase tracking-wider"
+          >
+            Manufacturer Recommended Due Services
+          </h2>
+        </div>
+
+        <p className="text-xs text-gray-400 leading-relaxed">
+          Based on current mileage. Tap a service to add it to the labor quote.
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          {dueServices.map((service) => {
+            const isAdded = addedTasks.includes(service.task);
+            return (
+              <button
+                key={`${service.mileage}-${service.task}`}
+                type="button"
+                onClick={() => onToggle(service.task)}
+                aria-pressed={isAdded}
+                className={[
+                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5",
+                  "text-xs font-bold transition-all duration-150",
+                  isAdded
+                    ? "bg-brand-400 border-brand-400 text-gray-950"
+                    : "bg-transparent border-brand-400/50 text-brand-400 hover:bg-brand-400/10",
+                ].join(" ")}
+              >
+                {isAdded ? "✓ " : "+ "}
+                {service.task}
+                <span
+                  className={[
+                    "text-[10px] font-normal opacity-75",
+                    isAdded ? "text-gray-950" : "text-brand-400/60",
+                  ].join(" ")}
+                >
+                  {formatMilesUntilDue(service.milesUntilDue)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {addedTasks.length > 0 && (
+          <p className="text-[10px] text-brand-400/70 pt-1">
+            {addedTasks.length} service{addedTasks.length !== 1 ? "s" : ""} added
+            — each adds 1 labor hour to the estimate.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // QuoteBuilderClient — top-level client component
 // ---------------------------------------------------------------------------
 
@@ -487,11 +566,13 @@ interface QuoteBuilderClientProps {
 }
 
 export function QuoteBuilderClient({ data }: QuoteBuilderClientProps) {
-  const { workOrderId, title, parts, shopRateCents } = data;
+  const { workOrderId, title, parts, shopRateCents, dueServices } = data;
 
   // --- Controllable state -----------------------------------------------
   const [laborHours, setLaborHours] = useState(0);
   const [customerSuppliedParts, setCustomerSuppliedParts] = useState(false);
+  // Tasks added from the Due Services section (each adds 1 labor hour).
+  const [addedTasks, setAddedTasks] = useState<string[]>([]);
 
   // --- Lock-quote state ------------------------------------------------
   const [isLocking, startLockTransition] = useTransition();
@@ -503,12 +584,27 @@ export function QuoteBuilderClient({ data }: QuoteBuilderClientProps) {
   // --- Live preview math (client-side) ---------------------------------
   // These are for display only; the server re-calculates everything on lock.
   const partsSubtotalCents = calcPartsSubtotal(parts, customerSuppliedParts);
-  const laborSubtotalCents = Math.round(
-    Math.max(0, laborHours) * shopRateCents,
-  );
+  // Include 1 labor hour per added due service task.
+  const effectiveLaborHours = Math.max(0, laborHours) + addedTasks.length;
+  const laborSubtotalCents = Math.round(effectiveLaborHours * shopRateCents);
   const subtotalCents = partsSubtotalCents + laborSubtotalCents;
   const taxCents = Math.round(subtotalCents * TAX_RATE);
   const totalCents = subtotalCents + taxCents;
+
+  // --- Due services toggle handler ------------------------------------
+  function handleDueServiceToggle(task: string) {
+    setAddedTasks((prev) => {
+      const next = prev.includes(task)
+        ? prev.filter((t) => t !== task)
+        : [...prev, task];
+      // Invalidate the locked calculation when tasks change.
+      if (isLocked) {
+        setIsLocked(false);
+        setLockedCalculation(null);
+      }
+      return next;
+    });
+  }
 
   // --- Lock handler ----------------------------------------------------
   function handleLock() {
@@ -516,7 +612,7 @@ export function QuoteBuilderClient({ data }: QuoteBuilderClientProps) {
       setLockError(null);
 
       const result = await lockQuote(workOrderId, {
-        laborHours,
+        laborHours: effectiveLaborHours,
         customerSuppliedParts,
       });
 
@@ -612,6 +708,13 @@ export function QuoteBuilderClient({ data }: QuoteBuilderClientProps) {
               </ul>
             )}
           </section>
+
+          {/* ── Manufacturer Recommended Due Services (Issue #57) ──────── */}
+          <DueServicesSection
+            dueServices={dueServices}
+            addedTasks={addedTasks}
+            onToggle={handleDueServiceToggle}
+          />
 
           {/* ── Labour calculator ──────────────────────────────────────── */}
           <LaborBlock

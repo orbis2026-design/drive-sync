@@ -1,13 +1,21 @@
 /**
  * GET /api/cron/retention
  *
- * Daily retention cron job target.  Scans every TenantVehicle, compares its
- * estimated current mileage and last service date against the GlobalVehicle
- * maintenance schedule, and queues a personalized Twilio SMS payload in the
- * OutboundCampaigns table for every match.
+ * Predictive SMS Retention Cron Job — Phase 15 rewrite (Issue #58).
+ *
+ * Uses the Phase 14/15 `maintenance_schedule_json` structure
+ * ([{ mileage, tasks[] }]) to project each vehicle's upcoming mileage and
+ * queue high-urgency SMS payloads when a 30,000 / 60,000 / 90,000-mile
+ * critical service interval is approaching.
+ *
+ * Projection formula (Issue #58):
+ *   projected_mileage = current_odometer
+ *                     + (AVG_DAILY_MILES × days_since_last_service)
+ *
+ * A campaign is queued when the projected mileage falls within LOOK_AHEAD_MILES
+ * of a major milestone AND the milestone exists in the vehicle's maintenance matrix.
  *
  * Security: requires a valid Bearer token matching the CRON_SECRET env var.
- * Designed to be called by Vercel Cron or Supabase pg_cron.
  *
  * Environment variables required:
  *   CRON_SECRET                  — shared secret verified in the Authorization header
@@ -17,42 +25,26 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { MaintenanceScheduleSchema } from "@/lib/schemas/maintenance";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** US average: ~13 500 miles/year ≈ 37 miles/day. */
+/** US average: ~13,500 miles/year ≈ 37 miles/day. */
 const AVG_DAILY_MILES = 37;
 
-/** Flag a vehicle when it is within this many miles of a service interval. */
-const MILES_THRESHOLD = 500;
-
-/** Flag a vehicle when its next service date is within this many days. */
-const DAYS_THRESHOLD = 30;
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+/**
+ * Critical mileage milestones that trigger the high-urgency SMS.
+ * Issue #58: "30,000, 60,000, or 90,000-mile milestone".
+ */
+const CRITICAL_MILESTONES = [30_000, 60_000, 90_000];
 
 /**
- * One item in a GlobalVehicle's maintenance_schedule_json array.
- * Matches the DB shape documented in supabase/schema.sql.
+ * Alert window: queue an SMS when the projected mileage is within this
+ * many miles of a critical milestone.
  */
-interface ScheduleItem {
-  /** Human-readable service name, e.g. "Oil Change". */
-  task: string;
-  /** Recurring mileage interval (e.g. 5000). Present on recurring services. */
-  interval_miles?: number;
-  /** Recurring time interval in months (e.g. 6). Present on time-based services. */
-  interval_months?: number;
-}
-
-interface MaintenanceMatch {
-  service: string;
-  milesUntilDue: number | null;
-  daysUntilDue: number | null;
-}
+const LOOK_AHEAD_MILES = 3_000;
 
 // ---------------------------------------------------------------------------
 // Security — Bearer token guard
@@ -60,139 +52,96 @@ interface MaintenanceMatch {
 
 function isAuthorized(req: NextRequest): boolean {
   const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    // Fail closed: if the secret is not configured, deny all requests.
-    return false;
-  }
+  if (!cronSecret) return false;
 
   const authHeader = req.headers.get("authorization") ?? "";
-  // Accept both "Bearer <token>" and a raw token for Vercel's x-vercel-signature
-  // fallback, but always prefer the Authorization header.
   const [scheme, token] = authHeader.split(" ");
-  if (scheme !== "Bearer" || !token) {
-    return false;
-  }
+  if (scheme !== "Bearer" || !token) return false;
 
-  // Constant-time comparison to prevent timing attacks.
-  return timingSafeEqual(token, cronSecret);
-}
-
-/**
- * Constant-time string comparison that prevents timing-based secret extraction.
- * Returns true only when both strings are identical in length and content.
- */
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
+  if (token.length !== cronSecret.length) return false;
   let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  for (let i = 0; i < token.length; i++) {
+    diff |= token.charCodeAt(i) ^ cronSecret.charCodeAt(i);
   }
   return diff === 0;
 }
 
 // ---------------------------------------------------------------------------
-// Maintenance logic
+// Mileage projection
 // ---------------------------------------------------------------------------
 
 /**
- * Given a vehicle's last known mileage, last service date, and the GlobalVehicle
- * maintenance schedule, return all services that are within the alert thresholds.
+ * Projects the vehicle's current mileage based on the last recorded odometer
+ * reading and the average daily miles since the last service date.
  */
-function findDueServices(
+function projectMileage(
   lastKnownMileage: number,
   lastServiceDate: Date | null,
-  schedule: ScheduleItem[],
-): MaintenanceMatch[] {
-  const today = new Date();
-  const daysSinceService = lastServiceDate
-    ? Math.floor(
-        (today.getTime() - lastServiceDate.getTime()) / (1000 * 60 * 60 * 24),
-      )
-    : null;
-
-  const estimatedMileage =
-    daysSinceService !== null
-      ? lastKnownMileage + daysSinceService * AVG_DAILY_MILES
-      : lastKnownMileage;
-
-  const matches: MaintenanceMatch[] = [];
-
-  for (const item of schedule) {
-    if (!item.task) continue;
-
-    let milesUntilDue: number | null = null;
-    let daysUntilDue: number | null = null;
-    let triggered = false;
-
-    // --- Mileage-based check ------------------------------------------------
-    if (item.interval_miles && item.interval_miles > 0) {
-      const nextDueMile =
-        Math.ceil(estimatedMileage / item.interval_miles) * item.interval_miles;
-      milesUntilDue = nextDueMile - estimatedMileage;
-      if (milesUntilDue <= MILES_THRESHOLD) {
-        triggered = true;
-      }
-    }
-
-    // --- Time-based check ---------------------------------------------------
-    if (item.interval_months && item.interval_months > 0 && lastServiceDate) {
-      const nextDueDate = new Date(lastServiceDate);
-      nextDueDate.setMonth(nextDueDate.getMonth() + item.interval_months);
-      daysUntilDue = Math.floor(
-        (nextDueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
-      );
-      if (daysUntilDue <= DAYS_THRESHOLD) {
-        triggered = true;
-      }
-    }
-
-    if (triggered) {
-      matches.push({ service: item.task, milesUntilDue, daysUntilDue });
-    }
-  }
-
-  return matches;
+): number {
+  if (!lastServiceDate) return lastKnownMileage;
+  const daysSinceService = Math.max(
+    0,
+    Math.floor(
+      (Date.now() - lastServiceDate.getTime()) / (1000 * 60 * 60 * 24),
+    ),
+  );
+  return lastKnownMileage + daysSinceService * AVG_DAILY_MILES;
 }
 
 // ---------------------------------------------------------------------------
-// SMS copy builder
+// Milestone resolver
 // ---------------------------------------------------------------------------
 
-function buildMessageBody(
+/**
+ * Returns the critical milestones that the projected mileage is approaching
+ * (within LOOK_AHEAD_MILES) AND that exist in the vehicle's maintenance matrix.
+ *
+ * A milestone "exists in the matrix" means there is an interval entry whose
+ * mileage value equals the milestone (or a multiple of it that the vehicle
+ * is approaching next).
+ */
+function findApproachingMilestones(
+  projectedMileage: number,
+  maintenanceMatrix: { mileage: number; tasks: string[] }[],
+): { milestone: number; tasks: string[] }[] {
+  const matrixMileages = new Set(maintenanceMatrix.map((i) => i.mileage));
+  const results: { milestone: number; tasks: string[] }[] = [];
+
+  for (const base of CRITICAL_MILESTONES) {
+    // Find the next occurrence of this recurring milestone.
+    const nextOccurrence = Math.ceil(projectedMileage / base) * base;
+    const milesAway = nextOccurrence - projectedMileage;
+
+    if (milesAway > LOOK_AHEAD_MILES) continue;
+
+    // Confirm the milestone is represented in this vehicle's matrix.
+    if (!matrixMileages.has(nextOccurrence)) continue;
+
+    const tasks =
+      maintenanceMatrix.find((i) => i.mileage === nextOccurrence)?.tasks ?? [];
+
+    results.push({ milestone: nextOccurrence, tasks });
+  }
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// SMS copy builder (high-urgency, Issue #58)
+// ---------------------------------------------------------------------------
+
+function buildUrgentSmsBody(
   firstName: string,
-  year: number,
   make: string,
   model: string,
-  service: string,
-  milesUntilDue: number | null,
-  daysUntilDue: number | null,
+  milestoneMiles: number,
+  bookingUrl: string,
 ): string {
-  const vehicle = `${year} ${make} ${model}`;
-
-  if (milesUntilDue !== null && milesUntilDue <= 0) {
-    return (
-      `Hi ${firstName}, your ${vehicle} is overdue for its ${service}. ` +
-      `Reply YES to book your appointment today.`
-    );
-  }
-
-  if (milesUntilDue !== null && milesUntilDue <= MILES_THRESHOLD) {
-    return (
-      `Hi ${firstName}, your ${vehicle} is due for its ${service} in about ` +
-      `${milesUntilDue.toLocaleString()} miles. Reply YES to book.`
-    );
-  }
-
-  if (daysUntilDue !== null && daysUntilDue <= 0) {
-    return (
-      `Hi ${firstName}, your ${vehicle} is overdue for its ${service} by date. ` +
-      `Reply YES to book your appointment today.`
-    );
-  }
-
+  const milestoneK = milestoneMiles / 1_000;
   return (
-    `Hi ${firstName}, your ${vehicle} is coming up on its ${service} in ` +
-    `about ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}. Reply YES to book.`
+    `Hi ${firstName}, your ${make} ${model} is approaching its critical ` +
+    `${milestoneK}k service interval. ` +
+    `Tap here to book your mobile appointment: ${bookingUrl}`
   );
 }
 
@@ -213,13 +162,7 @@ export async function GET(req: NextRequest) {
   const errors: string[] = [];
 
   try {
-    // --- 2. Fetch all TenantVehicles with related data ---------------------
-    //
-    // We join:
-    //   tenant_vehicles  — mileage, last_service_date, tenant_id, client_id
-    //   clients          — first_name, last_name, phone
-    //   global_vehicles  — year, make, model, maintenance_schedule_json
-    //
+    // --- 2. Fetch TenantVehicles with related maintenance data --------------
     const { data: vehicles, error: fetchError } = await adminDb
       .from("tenant_vehicles")
       .select(
@@ -235,9 +178,9 @@ export async function GET(req: NextRequest) {
           phone
         ),
         global_vehicles (
-          year,
           make,
           model,
+          year,
           maintenance_schedule_json
         )
       `,
@@ -260,7 +203,9 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // --- 3. Evaluate each vehicle against its maintenance schedule ---------
+    const bookingBaseUrl =
+      process.env.NEXT_PUBLIC_APP_URL ?? "https://app.drivesync.app";
+
     const campaignRows: {
       tenant_id: string;
       tenant_vehicle_id: string;
@@ -276,7 +221,7 @@ export async function GET(req: NextRequest) {
     for (const vehicle of vehicles) {
       vehiclesScanned++;
 
-      // Safely unwrap the joined rows (Supabase returns them as objects or null)
+      // Safely unwrap Supabase joined rows.
       const client = Array.isArray(vehicle.clients)
         ? vehicle.clients[0]
         : vehicle.clients;
@@ -290,37 +235,43 @@ export async function GET(req: NextRequest) {
       if (!phone) continue;
 
       const firstName = (client as { first_name: string }).first_name;
-      const { year, make, model, maintenance_schedule_json } =
-        globalVehicle as {
-          year: number;
-          make: string;
-          model: string;
-          maintenance_schedule_json: unknown;
-        };
+      const { make, model, maintenance_schedule_json } = globalVehicle as {
+        make: string;
+        model: string;
+        year: number;
+        maintenance_schedule_json: unknown;
+      };
 
-      // Validate the schedule JSON shape before processing.
-      if (!Array.isArray(maintenance_schedule_json)) continue;
-      const schedule = maintenance_schedule_json as ScheduleItem[];
+      // Validate against the Phase 14/15 canonical schema.
+      const scheduleResult =
+        MaintenanceScheduleSchema.safeParse(maintenance_schedule_json);
+      if (!scheduleResult.success) continue;
 
       const lastServiceDate = vehicle.last_service_date
         ? new Date(vehicle.last_service_date as string)
         : null;
 
-      const matches = findDueServices(
+      const projectedMileage = projectMileage(
         vehicle.mileage as number,
         lastServiceDate,
-        schedule,
       );
 
-      for (const match of matches) {
-        const body = buildMessageBody(
+      // Find critical milestones the vehicle is approaching.
+      const approaching = findApproachingMilestones(
+        projectedMileage,
+        scheduleResult.data,
+      );
+
+      for (const { milestone, tasks } of approaching) {
+        const milesUntilDue = milestone - projectedMileage;
+        const bookingUrl = `${bookingBaseUrl}/request/${vehicle.tenant_id}`;
+
+        const body = buildUrgentSmsBody(
           firstName,
-          year,
           make,
           model,
-          match.service,
-          match.milesUntilDue,
-          match.daysUntilDue,
+          milestone,
+          bookingUrl,
         );
 
         campaignRows.push({
@@ -329,15 +280,15 @@ export async function GET(req: NextRequest) {
           client_id: vehicle.client_id as string,
           to_phone: phone,
           message_body: body,
-          service_name: match.service,
-          miles_until_due: match.milesUntilDue,
-          days_until_due: match.daysUntilDue,
+          service_name: tasks.join(", "),
+          miles_until_due: Math.round(milesUntilDue),
+          days_until_due: null,
           status: "QUEUED",
         });
       }
     }
 
-    // --- 4. Bulk-insert into OutboundCampaigns ----------------------------
+    // --- 3. Bulk-insert into OutboundCampaigns ----------------------------
     if (campaignRows.length > 0) {
       const { error: insertError } = await adminDb
         .from("outbound_campaigns")

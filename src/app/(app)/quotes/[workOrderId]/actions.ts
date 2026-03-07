@@ -3,6 +3,11 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
 import { TAX_RATE, DEFAULT_SHOP_RATE_CENTS } from "./constants";
+import { getDueServices, type DueService, formatMilesUntilDue } from "@/lib/predictive-service";
+import { MaintenanceScheduleSchema } from "@/lib/schemas/maintenance";
+
+export type { DueService };
+export { formatMilesUntilDue };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,6 +36,10 @@ export interface QuoteData {
   parts: SelectedPart[];
   /** Tenant shop labour rate in US cents per hour. */
   shopRateCents: number;
+  /** Manufacturer-recommended services due within 3,000 miles of current odometer. */
+  dueServices: DueService[];
+  /** Current odometer reading (may be null if not recorded). */
+  currentMileage: number | null;
 }
 
 export interface LockQuoteParams {
@@ -146,6 +155,7 @@ function simulateTwilioSMS(to: string, body: string): void {
  *   - WorkOrder title
  *   - Saved parts list from `parts_json` (written by the Parts Sourcing step)
  *   - Tenant shop labour rate (defaults to $110/hr if not yet configured)
+ *   - Manufacturer recommended due services (Issue #57)
  */
 export async function getQuoteData(
   workOrderId: string,
@@ -154,11 +164,42 @@ export async function getQuoteData(
     return { error: "Missing work order ID." };
   }
 
-  let workOrder: { id: string; title: string; tenantId: string } | null = null;
+  let workOrder: {
+    id: string;
+    title: string;
+    tenantId: string;
+    vehicle: {
+      mileageIn: number | null;
+      globalVehicle: {
+        maintenanceScheduleJson: unknown;
+      } | null;
+      workOrders: {
+        laborJson: unknown;
+      }[];
+    } | null;
+  } | null = null;
   try {
     workOrder = await prisma.workOrder.findUnique({
       where: { id: workOrderId },
-      select: { id: true, title: true, tenantId: true },
+      select: {
+        id: true,
+        title: true,
+        tenantId: true,
+        vehicle: {
+          select: {
+            mileageIn: true,
+            globalVehicle: {
+              select: { maintenanceScheduleJson: true },
+            },
+            // Fetch labor line items from past PAID work orders to filter
+            // out already-completed services (Issue #57).
+            workOrders: {
+              where: { status: "PAID" },
+              select: { laborJson: true },
+            },
+          },
+        },
+      },
     });
   } catch {
     // Database unavailable in demo — fall through to error below.
@@ -166,6 +207,42 @@ export async function getQuoteData(
 
   if (!workOrder) {
     return { error: "Work order not found." };
+  }
+
+  // --- Compute due services (Issue #57) ------------------------------------
+  let dueServices: DueService[] = [];
+  const currentMileage = workOrder.vehicle?.mileageIn ?? null;
+
+  if (currentMileage !== null && workOrder.vehicle?.globalVehicle) {
+    const rawSchedule = workOrder.vehicle.globalVehicle.maintenanceScheduleJson;
+    const scheduleResult = MaintenanceScheduleSchema.safeParse(rawSchedule);
+
+    if (scheduleResult.success) {
+      // Build the set of completed task names from past PAID WorkOrders.
+      const completedTasks: string[] = [];
+      for (const wo of workOrder.vehicle.workOrders) {
+        if (!Array.isArray(wo.laborJson)) continue;
+        for (const item of wo.laborJson) {
+          if (
+            item !== null &&
+            typeof item === "object" &&
+            "description" in item &&
+            typeof (item as Record<string, unknown>).description === "string" &&
+            (item as Record<string, unknown>).description
+          ) {
+            completedTasks.push(
+              (item as Record<string, unknown>).description as string,
+            );
+          }
+        }
+      }
+
+      dueServices = getDueServices(
+        currentMileage,
+        scheduleResult.data,
+        completedTasks,
+      );
+    }
   }
 
   const [parts, shopRateCents] = await Promise.all([
@@ -179,6 +256,8 @@ export async function getQuoteData(
       title: workOrder.title,
       parts,
       shopRateCents,
+      dueServices,
+      currentMileage,
     },
   };
 }
