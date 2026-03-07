@@ -9,18 +9,22 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ducanh2912/next-pwa": "^10.2.9",
     "@prisma/adapter-pg": "^7.4.2",
     "@prisma/client": "^7.4.2",
     "@supabase/supabase-js": "^2.98.0",
     "@tailwindcss/postcss": "^4",
     "@types/pg": "^8.18.0",
     "@types/react-signature-canvas": "^1.0.7",
+    "dexie": "^4.3.0",
+    "framer-motion": "^12.35.0",
     "next": "16.1.6",
     "pg": "^8.20.0",
     "prisma": "^7.4.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-signature-canvas": "^1.1.0-alpha.2",
+    "recharts": "^3.8.0",
     "tailwindcss": "^4"
   },
   "devDependencies": {

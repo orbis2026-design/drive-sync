@@ -23,6 +23,7 @@ model Tenant {
   clients    Client[]
   vehicles   Vehicle[]
   workOrders WorkOrder[]
+  outboundCampaigns OutboundCampaign[]
 }
 
 // ---------------------------------------------------------------------------
@@ -41,6 +42,7 @@ model Client {
   tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   vehicles   Vehicle[]
   workOrders WorkOrder[]
+  outboundCampaigns OutboundCampaign[]
 
   @@index([tenantId])
 }
@@ -82,6 +84,8 @@ model Vehicle {
   plate           String?
   color           String?
   mileageIn       Int?     // Current odometer reading entered by shop
+  oilType         String?  // e.g. "5W-30 Full Synthetic"
+  tireSize        String?  // e.g. "225/55R17"
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -108,6 +112,8 @@ model WorkOrder {
   notes         String?
   laborCents    Int             @default(0)
   partsCents    Int             @default(0)
+  // Wholesale cost of parts (COGS). When null, a 55% markup ratio is assumed.
+  partsCostCents Int?
   approvalToken String?         @unique
   closedAt      DateTime?
   paymentMethod String?
@@ -131,3 +137,31 @@ enum WorkOrderStatus {
   PAID
 }
 
+// ---------------------------------------------------------------------------
+// OutboundCampaign – AI-generated or blast marketing messages sent via SMS.
+// ---------------------------------------------------------------------------
+model OutboundCampaign {
+  id           String                 @id @default(cuid())
+  tenantId     String
+  clientId     String?
+  phoneNumber  String?
+  message      String
+  campaignType String                 // "AI_GENERATED" | "BLAST"
+  audience     String?                // Target audience label for blast campaigns
+  status       OutboundCampaignStatus @default(QUEUED)
+  sentAt       DateTime?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client Client? @relation(fields: [clientId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+enum OutboundCampaignStatus {
+  QUEUED
+  SENT
+  DISCARDED
+}
