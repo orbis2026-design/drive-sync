@@ -1,0 +1,104 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Tenant – represents a single mechanic shop subscription.
+// All other models cascade from tenantId so data is fully isolated.
+// ---------------------------------------------------------------------------
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clients    Client[]
+  vehicles   Vehicle[]
+  workOrders WorkOrder[]
+}
+
+// ---------------------------------------------------------------------------
+// Client – vehicle owner / customer of a specific tenant.
+// ---------------------------------------------------------------------------
+model Client {
+  id        String   @id @default(cuid())
+  tenantId  String
+  firstName String
+  lastName  String
+  email     String?
+  phone     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vehicles   Vehicle[]
+  workOrders WorkOrder[]
+
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------------------------
+// Vehicle – belongs to a Client and a Tenant.
+// ---------------------------------------------------------------------------
+model Vehicle {
+  id        String   @id @default(cuid())
+  tenantId  String
+  clientId  String
+  make      String
+  model     String
+  year      Int
+  vin       String?
+  plate     String?
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client     Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  workOrders WorkOrder[]
+
+  @@index([tenantId])
+  @@index([clientId])
+}
+
+// ---------------------------------------------------------------------------
+// WorkOrder – the core operational record for a job.
+// ---------------------------------------------------------------------------
+model WorkOrder {
+  id          String          @id @default(cuid())
+  tenantId    String
+  clientId    String
+  vehicleId   String
+  status      WorkOrderStatus @default(INTAKE)
+  title       String
+  description String
+  notes       String?
+  laborCents  Int             @default(0)
+  partsCents  Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client  Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+enum WorkOrderStatus {
+  INTAKE
+  ACTIVE
+  COMPLETE
+  INVOICED
+}
+
