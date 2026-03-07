@@ -34,7 +34,7 @@ const fetchClients = unstable_cache(
         },
       });
 
-      return rows.map((client): ClientData => ({
+      return rows.map((client: (typeof rows)[number]): ClientData => ({
         id: client.id,
         firstName: client.firstName,
         lastName: client.lastName,
