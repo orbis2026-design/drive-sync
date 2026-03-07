@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Navigation } from "@/components/navigation";
+import { MobileNav } from "@/components/mobile-nav";
 import "./globals.css";
 
 export const viewport: Viewport = {
@@ -58,7 +58,7 @@ export default function RootLayout({
          * - Desktop : Navigation becomes a left sidebar, content fills the rest
          */}
         <div className="flex h-full flex-col sm:flex-row">
-          <Navigation />
+          <MobileNav />
           <main className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)] sm:pb-0">
             {children}
           </main>
