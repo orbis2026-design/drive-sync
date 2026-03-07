@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS warranties (
   installed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   warranty_months INT        NOT NULL DEFAULT 12,
   expires_at     TIMESTAMPTZ GENERATED ALWAYS AS
-                   (installed_at + (warranty_months || ' months')::INTERVAL) STORED,
+                   (installed_at + make_interval(months => warranty_months)) STORED,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
