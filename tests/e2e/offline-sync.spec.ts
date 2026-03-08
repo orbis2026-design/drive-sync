@@ -95,125 +95,154 @@ test.describe("Faraday Cage — Offline Sync", () => {
       // ------------------------------------------------------------------
       // 1. Navigate to an active WorkOrder
       // ------------------------------------------------------------------
-      await page.goto(`/jobs`);
-      await page.waitForLoadState("domcontentloaded");
-
-      // Navigate into the first available work order, or directly by ID.
-      const firstWorkOrder = page
-        .getByRole("link", { name: /work order|view job/i })
-        .first();
-
-      const hasWorkOrder = await firstWorkOrder.isVisible().catch(() => false);
-
-      if (hasWorkOrder) {
-        await firstWorkOrder.click();
+      await test.step("Navigate to active WorkOrder", async () => {
+        await page.goto(`/jobs`);
         await page.waitForLoadState("domcontentloaded");
-      }
-      // If no individual work order is visible we stay on /jobs — the
-      // offline badge is rendered at the app shell level by useOfflineSync,
-      // so the page is still a valid target for the Faraday Cage test.
+
+        // Navigate into the first available work order, or directly by ID.
+        const firstWorkOrder = page
+          .getByRole("link", { name: /work order|view job/i })
+          .first();
+
+        const hasWorkOrder = await firstWorkOrder.isVisible().catch(() => false);
+
+        if (hasWorkOrder) {
+          await firstWorkOrder.click();
+          await page.waitForLoadState("domcontentloaded");
+        }
+        // If no individual work order is visible we stay on /jobs — the
+        // offline badge is rendered at the app shell level by useOfflineSync,
+        // so the page is still a valid target for the Faraday Cage test.
+      });
 
       // ------------------------------------------------------------------
       // 2. Force the network context offline
       // ------------------------------------------------------------------
-      await context.setOffline(true);
+      await test.step("Force network offline", async () => {
+        await context.setOffline(true);
+      });
 
       // ------------------------------------------------------------------
       // 3. Simulate adding a part and modifying labor hours in the UI
       // ------------------------------------------------------------------
-
-      // Attempt to interact with a part input if available on this page.
-      const partInput = page
-        .getByPlaceholder(/part name|add part/i)
-        .or(page.getByLabel(/part name/i))
-        .first();
-
-      const partInputVisible = await partInput.isVisible().catch(() => false);
-
-      if (partInputVisible) {
-        await partInput.fill("Brake Pads");
-        const addPartBtn = page
-          .getByRole("button", { name: /add part/i })
+      await test.step("Simulate adding a part and modifying labor hours", async () => {
+        // Attempt to interact with a part input if available on this page.
+        const partInput = page
+          .getByPlaceholder(/part name|add part/i)
+          .or(page.getByLabel(/part name/i))
           .first();
-        if (await addPartBtn.isVisible().catch(() => false)) {
-          await addPartBtn.click();
+
+        const partInputVisible = await partInput.isVisible().catch(() => false);
+
+        if (partInputVisible) {
+          await partInput.fill("Brake Pads");
+          const addPartBtn = page
+            .getByRole("button", { name: /add part/i })
+            .first();
+          if (await addPartBtn.isVisible().catch(() => false)) {
+            await addPartBtn.click();
+          }
         }
-      }
 
-      const laborInput = page
-        .getByPlaceholder(/labor hours|hours/i)
-        .or(page.getByLabel(/labor hours/i))
-        .first();
+        const laborInput = page
+          .getByPlaceholder(/labor hours|hours/i)
+          .or(page.getByLabel(/labor hours/i))
+          .first();
 
-      if (await laborInput.isVisible().catch(() => false)) {
-        await laborInput.fill("2.5");
-      }
+        if (await laborInput.isVisible().catch(() => false)) {
+          await laborInput.fill("2.5");
+        }
+      });
 
       // ------------------------------------------------------------------
       // 4. Assert the "Offline: Changes Saved Locally" badge is visible
       // ------------------------------------------------------------------
-      // The badge is rendered by useOfflineSync / MobileNav when offline.
-      // In degraded CI mode (no DB) we assert the page is at least alive.
-      const bodyText = await page.locator("body").innerText();
-      expect(bodyText.trim().length).toBeGreaterThan(0);
+      await test.step("Assert Offline badge is visible", async () => {
+        // The badge is rendered by useOfflineSync / MobileNav when offline.
+        // In degraded CI mode (no DB) we assert the page is at least alive.
+        const bodyText = await page.locator("body").innerText();
+        expect(bodyText.trim().length).toBeGreaterThan(0);
 
-      // If the offline badge exists in the UI (full stack), assert it.
-      const offlineBadgePresent = await page
-        .getByTestId("offline-badge")
-        .or(page.getByText(/changes saved locally/i))
-        .first()
-        .isVisible()
-        .catch(() => false);
+        // Wait for the offline state to settle before asserting the badge.
+        const offlineBadgeLocator = page
+          .getByTestId("offline-badge")
+          .or(page.getByText(/offline/i))
+          .or(page.getByText(/changes saved locally/i))
+          .first();
 
-      if (offlineBadgePresent) {
-        await assertOfflineBadgeVisible(page);
-      }
+        const offlineBadgePresent = await offlineBadgeLocator
+          .isVisible()
+          .catch(() => false);
+
+        if (offlineBadgePresent) {
+          await expect(offlineBadgeLocator).toBeVisible({ timeout: 10_000 });
+        }
+      });
 
       // ------------------------------------------------------------------
       // 5. Restore the network
       // ------------------------------------------------------------------
-      await context.setOffline(false);
+      await test.step("Restore network connection", async () => {
+        await context.setOffline(false);
+      });
 
       // ------------------------------------------------------------------
       // 6. Assert that the badge disappears once sync completes
       // ------------------------------------------------------------------
-      if (offlineBadgePresent) {
-        await assertOfflineBadgeGone(page);
-      }
+      await test.step("Assert offline badge disappears after sync", async () => {
+        const badge = page
+          .getByTestId("offline-badge")
+          .or(page.getByText(/offline.*saved locally/i))
+          .or(page.getByText(/changes saved locally/i))
+          .first();
+
+        const wasBadgeVisible = await badge.isVisible().catch(() => false);
+        if (wasBadgeVisible) {
+          await expect(badge).not.toBeVisible({ timeout: 15_000 });
+        }
+      });
 
       // ------------------------------------------------------------------
       // 7. Verify via a direct Supabase DB query that the payload was written
       // ------------------------------------------------------------------
-      const dbRow = await fetchWorkOrderFromSupabase(SMOKE_WORK_ORDER_ID);
+      await test.step("Verify sync payload written to Supabase", async () => {
+        const dbRow = await fetchWorkOrderFromSupabase(SMOKE_WORK_ORDER_ID);
 
-      if (dbRow) {
-        // The row must exist and have an updated_at timestamp.
-        expect(dbRow).toHaveProperty("id");
-        expect(dbRow).toHaveProperty("updated_at");
-      } else {
-        // Supabase is not available (CI stub) — the offline/online toggle
-        // and badge assertions above are sufficient proof for this environment.
-        console.log(
-          "[offline-sync] Supabase not available — DB verification skipped.",
-        );
-      }
+        if (dbRow) {
+          // The row must exist and have an updated_at timestamp.
+          expect(dbRow).toHaveProperty("id");
+          expect(dbRow).toHaveProperty("updated_at");
+        } else {
+          // Supabase is not available (CI stub) — the offline/online toggle
+          // and badge assertions above are sufficient proof for this environment.
+          console.log(
+            "[offline-sync] Supabase not available — DB verification skipped.",
+          );
+        }
+      });
     },
   );
 
   test("network toggle does not crash the app", async ({ page, context }) => {
-    await page.goto("/");
-    await page.waitForLoadState("domcontentloaded");
+    await test.step("Navigate to home page", async () => {
+      await page.goto("/");
+      await page.waitForLoadState("domcontentloaded");
+    });
 
-    // Rapidly toggle offline / online — should never white-screen.
-    await context.setOffline(true);
-    await context.setOffline(false);
-    await context.setOffline(true);
-    await context.setOffline(false);
+    await test.step("Rapidly toggle offline/online", async () => {
+      // Rapidly toggle offline / online — should never white-screen.
+      await context.setOffline(true);
+      await context.setOffline(false);
+      await context.setOffline(true);
+      await context.setOffline(false);
+    });
 
-    const body = page.locator("body");
-    await expect(body).toBeVisible();
+    await test.step("Assert app remains stable after network toggling", async () => {
+      const body = page.locator("body");
+      await expect(body).toBeVisible();
 
-    // No error boundary should be showing.
-    await expect(page.getByText(/dropped a wrench/i)).not.toBeVisible();
+      // No error boundary should be showing.
+      await expect(page.getByText(/dropped a wrench/i)).not.toBeVisible();
+    });
   });
 });

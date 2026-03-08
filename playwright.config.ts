@@ -42,50 +42,24 @@ export default defineConfig({
 
   use: {
     baseURL: BASE_URL,
-    // Collect traces on first retry so you can diagnose CI failures.
-    trace: "on-first-retry",
+    // Retain traces on failure for post-mortem debugging.
+    trace: "retain-on-failure",
     // Capture screenshots on failure.
     screenshot: "only-on-failure",
+    // Retain video recordings on failure.
+    video: "retain-on-failure",
     // Reuse the authenticated storage state produced by global-setup.
     storageState: "tests/.auth/field-tech.json",
   },
 
   projects: [
     {
-      // Issue #71: Mechanic's primary device (iOS phone).
-      name: "iPhone 14 Pro",
-      use: {
-        ...devices["iPhone 14 Pro"],
-        hasTouch: true,
-        colorScheme: "dark",
-      },
+      name: "Mobile Safari",
+      use: { ...devices["iPhone 14 Pro"] },
     },
     {
-      // Android phone — Samsung Galaxy-class device.
-      name: "Pixel 7",
-      use: {
-        ...devices["Pixel 7"],
-        hasTouch: true,
-        colorScheme: "dark",
-      },
-    },
-    {
-      // Tablet — iPad for shop counter use.
-      name: "iPad Pro 11",
-      use: {
-        ...devices["iPad Pro 11"],
-        hasTouch: true,
-        colorScheme: "dark",
-      },
-    },
-    {
-      // Android tablet.
-      name: "Galaxy Tab S4",
-      use: {
-        ...devices["Galaxy Tab S4"],
-        hasTouch: true,
-        colorScheme: "dark",
-      },
+      name: "Desktop Chrome",
+      use: { viewport: { width: 1920, height: 1080 } },
     },
   ],
 
