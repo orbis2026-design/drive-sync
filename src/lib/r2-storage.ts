@@ -11,6 +11,9 @@
  *   R2_SECRET_KEY   — R2 API token Secret Access Key
  *   R2_BUCKET_NAME  — Name of the R2 bucket (defaults to "drive-sync-media")
  *   R2_PUBLIC_URL   — Public base URL for the bucket (optional; used for final URLs)
+ *
+ * Issue #100 adds a second, private backup bucket:
+ *   R2_BACKUP_BUCKET_NAME — Name of the backup R2 bucket (defaults to "drive-sync-backups")
  */
 
 import { S3Client } from "@aws-sdk/client-s3";
@@ -20,6 +23,10 @@ const accessKeyId = process.env.R2_ACCESS_KEY ?? "";
 const secretAccessKey = process.env.R2_SECRET_KEY ?? "";
 
 export const R2_BUCKET = process.env.R2_BUCKET_NAME ?? "drive-sync-media";
+
+/** Dedicated private bucket for automated database backups (Issue #100). */
+export const R2_BACKUP_BUCKET =
+  process.env.R2_BACKUP_BUCKET_NAME ?? "drive-sync-backups";
 
 /**
  * Public base URL for the R2 bucket.

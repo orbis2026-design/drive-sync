@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CommandPaletteProvider } from "@/components/command-palette";
 import { NavController } from "@/components/nav-controller";
+import InactivityLock from "@/components/auth/InactivityLock";
 import {
   getSessionUserId,
   getUserRole,
@@ -94,10 +95,12 @@ export default async function AppLayout({
 
   return (
     <CommandPaletteProvider>
-      <div className="flex min-h-screen bg-gray-950">
-        <NavController role={role} />
-        <main className="flex-1 overflow-auto">{children}</main>
-      </div>
+      <InactivityLock>
+        <div className="flex min-h-screen bg-gray-950">
+          <NavController role={role} />
+          <main className="flex-1 overflow-auto">{children}</main>
+        </div>
+      </InactivityLock>
     </CommandPaletteProvider>
   );
 }
