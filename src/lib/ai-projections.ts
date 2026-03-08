@@ -55,9 +55,21 @@ export async function generateWeeklyProjection(
   const totalDollars = Math.round(totalCents / 100);
   const completedCount = completed.length;
 
-  // Simple week-over-week placeholder (would require prior-week data in production)
-  const tip =
-    "Battery failures spike in cold weather — stock up on group sizes 35 and 65.";
+  // Rotate through seasonal/operational tips based on the week of year
+  const weekOfYear = Math.ceil(
+    (new Date().getTime() - new Date(new Date().getFullYear(), 0, 1).getTime()) /
+      (7 * 24 * 60 * 60 * 1000),
+  );
+  const TIPS = [
+    "Battery failures spike in cold weather — stock up on group sizes 35 and 65.",
+    "Coolant flushes are up 40% in spring — upsell during oil change visits.",
+    "Check your tire inventory: summer tire changeover season is approaching.",
+    "TPMS sensors fail most often at 7–10 years old — flag them on older vehicles.",
+    "AC service demand rises in warmer months — pre-order refrigerant now.",
+    "Wiper blade replacements peak before rainy season — keep extra stock on hand.",
+    "Fleet clients often need brake service every 6 months — schedule proactive outreach.",
+  ];
+  const tip = TIPS[weekOfYear % TIPS.length];
 
   const message =
     `📊 Weekly Report: ${completedCount} job${completedCount !== 1 ? "s" : ""} completed, ` +

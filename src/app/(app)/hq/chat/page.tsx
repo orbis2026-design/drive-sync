@@ -11,7 +11,26 @@ import type { ShopMessage } from "./actions";
 function getBrowserSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, anon);
+  return createClient(url, anon, {
+    auth: {
+      persistSession: true,
+      storageKey: "drive-sync-auth",
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Resolve the current user ID from the active Supabase session.
+// Falls back to "demo-user" when running without a real auth session.
+// ---------------------------------------------------------------------------
+async function resolveCurrentUserId(): Promise<string> {
+  const supabase = getBrowserSupabase();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  return session?.user?.id ?? "demo-user";
 }
 
 // ---------------------------------------------------------------------------
@@ -107,8 +126,11 @@ export default function ShopChatPage() {
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Use "demo-user" as a stable client-side ID
-  const currentUserId = "demo-user";
+  // Resolve user ID from the live session; fall back to "demo-user"
+  const [currentUserId, setCurrentUserId] = useState("demo-user");
+  useEffect(() => {
+    resolveCurrentUserId().then(setCurrentUserId);
+  }, []);
 
   // ------------------------------------------------------------------
   // Load messages when channel changes

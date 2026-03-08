@@ -154,7 +154,7 @@ export function BookingClient({
 
   // ---------- Success screen ----------
   if (confirmedId) {
-    const ref = confirmedId.slice(0, 8).toUpperCase();
+    const ref = confirmedId.slice(0, 8).toUpperCase(); // display-only truncation; full UUID used for all lookups
     return (
       <div className="flex flex-col items-center gap-6 px-6 py-12 text-center">
         <div className="text-6xl">✅</div>
