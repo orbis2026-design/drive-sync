@@ -54,16 +54,24 @@ export async function decrementStockForWorkOrder(
       return;
     }
 
-    // Find the matching consumable by name (case-insensitive)
-    const consumable = await prisma.consumable.findFirst({
+    // Find the matching consumable by name — try exact match first, then
+    // startsWith as a fallback to avoid false positives (e.g., "5W-30"
+    // matching "15W-30" when using a plain contains query).
+    let consumable = await prisma.consumable.findFirst({
       where: {
         tenantId,
-        name: {
-          contains: oilWeightOem,
-          mode: "insensitive",
-        },
+        name: { equals: oilWeightOem, mode: "insensitive" },
       },
     });
+
+    if (!consumable) {
+      consumable = await prisma.consumable.findFirst({
+        where: {
+          tenantId,
+          name: { startsWith: oilWeightOem, mode: "insensitive" },
+        },
+      });
+    }
 
     if (!consumable) {
       console.warn(
