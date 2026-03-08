@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -43,7 +44,8 @@ export async function fetchMonthlyReport(
     return { error: "Invalid year or month." };
   }
 
-  const tenantId = process.env.DEMO_TENANT_ID;
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
 
   try {
     const start = new Date(year, month - 1, 1);
@@ -51,7 +53,7 @@ export async function fetchMonthlyReport(
 
     const paidOrders = await prisma.workOrder.findMany({
       where: {
-        ...(tenantId ? { tenantId } : {}),
+        tenantId,
         status: "PAID",
         closedAt: { gte: start, lt: end },
       },

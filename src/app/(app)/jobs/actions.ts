@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,18 +50,17 @@ export type JobCard = {
  * urgency grouping is applied client-side in JobsBoard.tsx via accordion lanes.
  *
  * Only statuses that represent in-progress work are returned; PAID is excluded.
- * The tenant is scoped via DEMO_TENANT_ID (prototype) and will be replaced by
- * the authenticated session's tenantId in production.
  */
 export async function fetchActiveJobs(): Promise<
   { data: JobCard[] } | { data: null; error: string }
 > {
-  const tenantId = process.env.DEMO_TENANT_ID;
+  const tenantId = await getTenantId();
+  if (!tenantId) return { data: null, error: "Authentication required." };
 
   try {
     const rows = await prisma.workOrder.findMany({
       where: {
-        ...(tenantId ? { tenantId } : {}),
+        tenantId,
         status: { in: [...ACTIVE_STATUSES] },
       },
       // Sort by createdAt ascending — urgency grouping is handled client-side.

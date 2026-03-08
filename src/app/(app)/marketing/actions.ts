@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { BLAST_AUDIENCES } from "./constants";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,12 +45,13 @@ async function simulateSendSMS(
 export async function fetchQueuedMessages(): Promise<
   { data: QueuedMessage[] } | { error: string }
 > {
-  const tenantId = process.env.DEMO_TENANT_ID;
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
 
   try {
     const rows = await prisma.outboundCampaign.findMany({
       where: {
-        ...(tenantId ? { tenantId } : {}),
+        tenantId,
         status: "QUEUED",
       },
       orderBy: { createdAt: "asc" },
@@ -152,7 +154,8 @@ export async function sendBlastCampaign(
   if (!BLAST_AUDIENCES.find((a) => a.value === audience))
     return { error: "Invalid audience selection." };
 
-  const tenantId = process.env.DEMO_TENANT_ID;
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
 
   try {
     // Determine eligible clients
@@ -165,7 +168,7 @@ export async function sendBlastCampaign(
 
       const recentClients = await prisma.workOrder.findMany({
         where: {
-          ...(tenantId ? { tenantId } : {}),
+          tenantId,
           closedAt: { gte: cutoff },
         },
         select: { clientId: true },
@@ -174,7 +177,7 @@ export async function sendBlastCampaign(
       const recentIds = new Set(recentClients.map((r: (typeof recentClients)[number]) => r.clientId));
 
       const all = await prisma.client.findMany({
-        where: tenantId ? { tenantId } : {},
+        where: { tenantId },
         select: { id: true },
       });
       clientIds = all.map((c: (typeof all)[number]) => c.id).filter((id: string) => !recentIds.has(id));
@@ -183,7 +186,7 @@ export async function sendBlastCampaign(
       cutoff.setMonth(cutoff.getMonth() - 6);
       const old = await prisma.workOrder.findMany({
         where: {
-          ...(tenantId ? { tenantId } : {}),
+          tenantId,
           closedAt: { lte: cutoff },
         },
         select: { clientId: true },
@@ -193,7 +196,7 @@ export async function sendBlastCampaign(
     } else {
       // ALL
       const all = await prisma.client.findMany({
-        where: tenantId ? { tenantId } : {},
+        where: { tenantId },
         select: { id: true },
       });
       clientIds = all.map((c: (typeof all)[number]) => c.id);
@@ -210,15 +213,12 @@ export async function sendBlastCampaign(
     });
 
     // Send (simulate) + create campaign rows
-    const firstTenantId = tenantId ?? (await prisma.tenant.findFirst())?.id;
-    if (!firstTenantId) return { error: "Tenant not configured." };
-
     await Promise.all(
       clients.map(async (c: (typeof clients)[number]) => {
         await simulateSendSMS(c.phone, message);
         await prisma.outboundCampaign.create({
           data: {
-            tenantId: firstTenantId,
+            tenantId,
             clientId: c.id,
             phoneNumber: c.phone,
             message,

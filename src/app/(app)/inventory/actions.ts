@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,11 +25,12 @@ export type ConsumableRow = {
 export async function fetchConsumables(): Promise<
   { data: ConsumableRow[] } | { error: string }
 > {
-  const tenantId = process.env.DEMO_TENANT_ID;
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
 
   try {
     const rows = await prisma.consumable.findMany({
-      where: tenantId ? { tenantId } : {},
+      where: { tenantId },
       orderBy: { name: "asc" },
     });
 
@@ -97,8 +99,8 @@ export async function createConsumable(payload: {
   lowStockThreshold: number;
   costPerUnitCents: number;
 }): Promise<{ success: true; id: string } | { error: string }> {
-  const tenantId = process.env.DEMO_TENANT_ID;
-  if (!tenantId) return { error: "Tenant not configured." };
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
   if (!payload.name || !payload.unit) return { error: "Name and unit are required." };
 
   try {

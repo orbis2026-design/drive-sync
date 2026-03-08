@@ -6,6 +6,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getTenantId } from "@/lib/auth";
 
 export interface CreateDiagnosticWorkOrderParams {
   clientFirstName: string;
@@ -24,9 +25,9 @@ export interface CreateDiagnosticWorkOrderParams {
 export async function createDiagnosticWorkOrder(
   params: CreateDiagnosticWorkOrderParams,
 ): Promise<{ workOrderId: string } | { error: string }> {
-  const tenantId = process.env.DEMO_TENANT_ID;
+  const tenantId = await getTenantId();
   if (!tenantId) {
-    return { error: "Tenant not configured (DEMO_TENANT_ID missing)." };
+    return { error: "Authentication required." };
   }
 
   try {

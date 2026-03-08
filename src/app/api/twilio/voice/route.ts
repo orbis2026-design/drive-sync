@@ -16,7 +16,6 @@
  *   TWILIO_AUTH_TOKEN           — Twilio auth token
  *   TWILIO_FROM_NUMBER          — Mechanic's Twilio number (same as To)
  *   NEXT_PUBLIC_APP_URL         — Base URL of this Next.js app
- *   DEMO_TENANT_ID              — Default tenant (used when To lookup fails)
  *   NEXT_PUBLIC_SUPABASE_URL    — Supabase project URL
  *   SUPABASE_SERVICE_ROLE_KEY   — Service-role key (bypasses RLS)
  */
@@ -69,11 +68,11 @@ async function handleInboundCall(req: NextRequest): Promise<NextResponse> {
 
   const adminDb = createAdminClient();
 
-  // Resolve the tenant from the "To" Twilio number; fall back to DEMO_TENANT_ID.
-  let tenantId = process.env.DEMO_TENANT_ID ?? null;
+  // Resolve the tenant from the "To" Twilio number.
+  let tenantId: string | null = null;
   let ownerPhone: string | null = null;
   let tenantName = "Your Mechanic";
-  let tenantSlug = tenantId ?? "unknown";
+  let tenantSlug = "unknown";
 
   if (to) {
     const { data: tenant } = await adminDb
@@ -136,7 +135,7 @@ async function handleInboundCall(req: NextRequest): Promise<NextResponse> {
 
 async function handleMissedCall(req: NextRequest): Promise<NextResponse> {
   const { searchParams } = new URL(req.url);
-  const tenantId = searchParams.get("tenantId") ?? process.env.DEMO_TENANT_ID ?? "";
+  const tenantId = searchParams.get("tenantId") ?? "";
   const tenantName = searchParams.get("tenantName") ?? "Your Mechanic";
   const tenantSlug = searchParams.get("tenantSlug") ?? tenantId;
 

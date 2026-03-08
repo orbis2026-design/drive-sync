@@ -19,6 +19,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getTenantId } from "@/lib/auth";
 
 const QBO_CLIENT_ID = process.env.QBO_CLIENT_ID ?? "";
 const QBO_CLIENT_SECRET = process.env.QBO_CLIENT_SECRET ?? "";
@@ -26,7 +27,6 @@ const QBO_REDIRECT_URI =
   process.env.QBO_REDIRECT_URI ??
   `${process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? ""}/api/qbo/callback`;
 const QBO_TOKEN_ENDPOINT = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
-const DEMO_TENANT_ID = process.env.DEMO_TENANT_ID ?? "";
 
 // ---------------------------------------------------------------------------
 // Token exchange with Intuit
@@ -110,6 +110,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       refreshToken = tokens.refresh_token;
     }
 
+    // Resolve the tenant from the authenticated session
+    const tenantId = await getTenantId();
+    if (!tenantId) {
+      return NextResponse.redirect(
+        new URL("/accounting/qbo?error=authentication_required", req.url),
+      );
+    }
+
     // Persist tokens to the tenants table
     const admin = createAdminClient();
     const { error: dbError } = await admin
@@ -119,7 +127,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         qbo_access_token: accessToken,
         qbo_refresh_token: refreshToken,
       })
-      .eq("id", DEMO_TENANT_ID);
+      .eq("id", tenantId);
 
     if (dbError) {
       console.error("[qbo/callback] Failed to store tokens:", dbError);

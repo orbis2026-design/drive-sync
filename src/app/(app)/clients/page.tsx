@@ -2,6 +2,7 @@ import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { computeMaintenanceBadges, type MaintenanceItem } from "@/lib/maintenance";
 import { ClientFeed, type ClientData, type VehicleData } from "./ClientFeed";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Metadata
@@ -81,8 +82,8 @@ const fetchClients = unstable_cache(
 // Page component
 // ---------------------------------------------------------------------------
 export default async function ClientsPage() {
-  const tenantId = process.env.DEMO_TENANT_ID;
-  const clients = await fetchClients(tenantId);
+  const tenantId = await getTenantId();
+  const clients = await fetchClients(tenantId ?? undefined);
 
   return (
     <div className="flex flex-col min-h-full">

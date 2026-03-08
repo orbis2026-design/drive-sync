@@ -2,19 +2,18 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { getBrowserClient } from "@/lib/supabase/browser";
-import { sendShopMessage, fetchShopMessages } from "./actions";
+import { sendShopMessage, fetchShopMessages, getSessionTenantId } from "./actions";
 import type { ShopMessage } from "./actions";
 
 // ---------------------------------------------------------------------------
 // Resolve the current user ID from the active Supabase session.
-// Falls back to "demo-user" when running without a real auth session.
 // ---------------------------------------------------------------------------
-async function resolveCurrentUserId(): Promise<string> {
+async function resolveCurrentUserId(): Promise<string | null> {
   const supabase = getBrowserClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  return session?.user?.id ?? "demo-user";
+  return session?.user?.id ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,9 +41,9 @@ function MessageBubble({
   currentUserId,
 }: {
   msg: ShopMessage;
-  currentUserId: string;
+  currentUserId: string | null;
 }) {
-  const isOwn = msg.user_id === currentUserId && !msg.is_ai;
+  const isOwn = currentUserId !== null && msg.user_id === currentUserId && !msg.is_ai;
   const ts = new Date(msg.created_at).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -110,10 +109,16 @@ export default function ShopChatPage() {
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Resolve user ID from the live session; fall back to "demo-user"
-  const [currentUserId, setCurrentUserId] = useState("demo-user");
+  // Resolve user ID from the live session
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   useEffect(() => {
     resolveCurrentUserId().then(setCurrentUserId);
+  }, []);
+
+  // Resolve tenant ID from the authenticated session
+  const [tenantId, setTenantId] = useState<string | null>(null);
+  useEffect(() => {
+    getSessionTenantId().then(setTenantId);
   }, []);
 
   // ------------------------------------------------------------------
@@ -135,7 +140,7 @@ export default function ShopChatPage() {
   // Supabase Real-Time subscription
   // ------------------------------------------------------------------
   useEffect(() => {
-    const tenantId = process.env.NEXT_PUBLIC_DEMO_TENANT_ID;
+    if (!tenantId) return;
     const supabase = getBrowserClient();
 
     const channel = supabase
@@ -146,9 +151,7 @@ export default function ShopChatPage() {
           event: "INSERT",
           schema: "public",
           table: "shop_messages",
-          filter: tenantId
-            ? `tenant_id=eq.${tenantId}&channel=eq.${activeChannel}`
-            : `channel=eq.${activeChannel}`,
+          filter: `tenant_id=eq.${tenantId}&channel=eq.${activeChannel}`,
         },
         (payload) => {
           setMessages((prev) => [
@@ -162,7 +165,7 @@ export default function ShopChatPage() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [activeChannel]);
+  }, [activeChannel, tenantId]);
 
   // ------------------------------------------------------------------
   // Auto-scroll to bottom

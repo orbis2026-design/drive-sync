@@ -2,8 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
-
-const DEMO_TENANT_ID = process.env.DEMO_TENANT_ID ?? "";
+import { getTenantId } from "@/lib/auth";
 
 export interface IntegrationSettings {
   googlePlaceId: string | null;
@@ -12,7 +11,8 @@ export interface IntegrationSettings {
 }
 
 export async function getIntegrationSettings(): Promise<IntegrationSettings> {
-  if (!DEMO_TENANT_ID) {
+  const tenantId = await getTenantId();
+  if (!tenantId) {
     return { googlePlaceId: null, reviewLink: null, ownerPhone: null };
   }
   try {
@@ -20,7 +20,7 @@ export async function getIntegrationSettings(): Promise<IntegrationSettings> {
     const { data } = await admin
       .from("tenants")
       .select("google_place_id, review_link, owner_phone")
-      .eq("id", DEMO_TENANT_ID)
+      .eq("id", tenantId)
       .single();
     return {
       googlePlaceId: (data as Record<string, string | null> | null)?.google_place_id ?? null,
@@ -35,7 +35,8 @@ export async function getIntegrationSettings(): Promise<IntegrationSettings> {
 export async function saveIntegrationSettings(
   settings: IntegrationSettings,
 ): Promise<{ success: true } | { error: string }> {
-  if (!DEMO_TENANT_ID) return { error: "Tenant not configured." };
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
   try {
     const admin = createAdminClient();
     const { error } = await admin
@@ -45,7 +46,7 @@ export async function saveIntegrationSettings(
         review_link: settings.reviewLink || null,
         owner_phone: settings.ownerPhone || null,
       })
-      .eq("id", DEMO_TENANT_ID);
+      .eq("id", tenantId);
     if (error) return { error: error.message };
     revalidatePath("/settings/integrations");
     return { success: true };

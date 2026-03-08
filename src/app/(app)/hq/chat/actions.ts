@@ -1,7 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getSessionUserId } from "@/lib/auth";
+import { getSessionUserId, getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,10 +27,11 @@ export async function sendShopMessage(
 ): Promise<{ error?: string }> {
   if (!body.trim()) return { error: "Message body is required." };
 
-  const tenantId = process.env.DEMO_TENANT_ID;
-  if (!tenantId) return { error: "Tenant ID is not configured." };
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
 
-  const userId = (await getSessionUserId()) ?? "demo-user";
+  const userId = await getSessionUserId();
+  if (!userId) return { error: "Authentication required." };
 
   const admin = createAdminClient();
   const { error } = await admin.from("shop_messages").insert({
@@ -51,8 +52,8 @@ export async function sendShopMessage(
 export async function fetchShopMessages(
   channel: string,
 ): Promise<{ data?: ShopMessage[]; error?: string }> {
-  const tenantId = process.env.DEMO_TENANT_ID;
-  if (!tenantId) return { error: "Tenant ID is not configured." };
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
 
   const admin = createAdminClient();
   const { data, error } = await admin
@@ -68,4 +69,9 @@ export async function fetchShopMessages(
   }
 
   return { data: (data ?? []) as ShopMessage[] };
+}
+
+/** Returns the authenticated user's tenant ID for use by client components. */
+export async function getSessionTenantId(): Promise<string | null> {
+  return getTenantId();
 }

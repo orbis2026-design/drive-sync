@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -19,8 +20,6 @@ const QBO_API_BASE =
   process.env.QBO_SANDBOX === "true"
     ? "https://sandbox-quickbooks.api.intuit.com"
     : "https://quickbooks.api.intuit.com";
-
-const DEMO_TENANT_ID = process.env.DEMO_TENANT_ID ?? "";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,12 +55,15 @@ export interface SyncResult {
 // ---------------------------------------------------------------------------
 
 export async function getQboStatus(): Promise<QboStatus> {
+  const tenantId = await getTenantId();
+  if (!tenantId) return { connected: false, realmId: null, companyName: null };
+
   const admin = createAdminClient();
 
   const { data: tenant } = await admin
     .from("tenants")
     .select("qbo_realm_id, qbo_access_token")
-    .eq("id", DEMO_TENANT_ID)
+    .eq("id", tenantId)
     .single();
 
   if (!tenant?.qbo_realm_id || !tenant?.qbo_access_token) {
@@ -115,11 +117,14 @@ export async function getQboOAuthUrl(): Promise<{ url: string }> {
 // ---------------------------------------------------------------------------
 
 export async function disconnectQbo(): Promise<{ ok: boolean }> {
+  const tenantId = await getTenantId();
+  if (!tenantId) return { ok: false };
+
   const admin = createAdminClient();
   await admin
     .from("tenants")
     .update({ qbo_realm_id: null, qbo_access_token: null, qbo_refresh_token: null })
-    .eq("id", DEMO_TENANT_ID);
+    .eq("id", tenantId);
   return { ok: true };
 }
 
@@ -130,15 +135,18 @@ export async function disconnectQbo(): Promise<{ ok: boolean }> {
 export async function getQboChartOfAccounts(): Promise<
   ChartOfAccountsEntry[] | { error: string }
 > {
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   const admin = createAdminClient();
   const { data: tenant } = await admin
     .from("tenants")
     .select("qbo_realm_id, qbo_access_token")
-    .eq("id", DEMO_TENANT_ID)
+    .eq("id", tenantId)
     .single();
 
   if (!tenant?.qbo_access_token || !tenant?.qbo_realm_id) {
-    // Return mock data for demo purposes
+    // Return mock data when QBO is not connected
     return MOCK_ACCOUNTS;
   }
 
@@ -192,11 +200,14 @@ export async function syncPaidWorkOrders(
     return { error: "Please map at least Labor and Parts accounts before syncing." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   const admin = createAdminClient();
   const { data: tenant } = await admin
     .from("tenants")
     .select("qbo_realm_id, qbo_access_token")
-    .eq("id", DEMO_TENANT_ID)
+    .eq("id", tenantId)
     .single();
 
   // Fetch PAID work orders that haven't been synced yet
@@ -211,7 +222,7 @@ export async function syncPaidWorkOrders(
 
   try {
     workOrders = await prisma.workOrder.findMany({
-      where: { tenantId: DEMO_TENANT_ID, status: "PAID" },
+      where: { tenantId, status: "PAID" },
       select: {
         id: true,
         title: true,

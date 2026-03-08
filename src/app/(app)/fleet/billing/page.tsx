@@ -11,6 +11,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { FleetBillingClient } from "./FleetBillingClient";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types shared with the client component
@@ -35,13 +36,12 @@ export type FleetWorkOrder = {
 // Data fetching helpers
 // ---------------------------------------------------------------------------
 
-const DEMO_TENANT_ID = process.env.DEMO_TENANT_ID ?? "";
-
 async function fetchFleetClients(): Promise<FleetClient[]> {
-  if (!DEMO_TENANT_ID) return [];
+  const tenantId = await getTenantId();
+  if (!tenantId) return [];
   try {
     const clients = await prisma.client.findMany({
-      where: { tenantId: DEMO_TENANT_ID, isCommercialFleet: true },
+      where: { tenantId, isCommercialFleet: true },
       orderBy: { lastName: "asc" },
       select: { id: true, firstName: true, lastName: true, email: true },
     });

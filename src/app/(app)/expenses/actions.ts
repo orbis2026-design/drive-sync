@@ -1,8 +1,8 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getTenantId } from "@/lib/auth";
 
-const DEMO_TENANT_ID = process.env.DEMO_TENANT_ID ?? "";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -36,9 +36,11 @@ export async function uploadAndParseReceipt(
   if (!file) return { error: "No receipt image provided." };
 
   const supabase = createAdminClient();
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
 
   // ── Upload image to Supabase Storage ──────────────────────────────────────
-  const fileName = `${DEMO_TENANT_ID}/${Date.now()}-${file.name}`;
+  const fileName = `${tenantId}/${Date.now()}-${file.name}`;
   const arrayBuffer = await file.arrayBuffer();
   const { data: storageData, error: storageError } = await supabase.storage
     .from("receipts")
@@ -137,11 +139,13 @@ export async function confirmExpense(payload: {
   if (!vendor.trim()) return { error: "Vendor name is required." };
 
   const supabase = createAdminClient();
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
 
   const { data, error } = await supabase
     .from("expenses")
     .insert({
-      tenant_id: DEMO_TENANT_ID,
+      tenant_id: tenantId,
       amount,
       vendor: vendor.trim(),
       category: category.trim() || "General",
@@ -160,11 +164,13 @@ export async function fetchExpenses(): Promise<
   { data: ExpenseRecord[] } | { error: string }
 > {
   const supabase = createAdminClient();
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
 
   const { data, error } = await supabase
     .from("expenses")
     .select("*")
-    .eq("tenant_id", DEMO_TENANT_ID)
+    .eq("tenant_id", tenantId)
     .order("created_at", { ascending: false })
     .limit(100);
 

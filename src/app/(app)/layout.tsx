@@ -10,6 +10,7 @@ import {
   getSessionUserId,
   getUserRole,
   getFleetClientId,
+  getTenantId,
   type UserRole,
 } from "@/lib/auth";
 
@@ -17,19 +18,18 @@ import {
 // Subscription guard — blocks PAST_DUE tenants from all pages except /settings/billing
 // ---------------------------------------------------------------------------
 
-const DEMO_TENANT_ID = process.env.DEMO_TENANT_ID ?? "";
-
 /** Path that is always accessible, even when the subscription is past due. */
 const BILLING_PATH = "/settings/billing";
 
 async function getSubscriptionStatus(): Promise<string | null> {
-  if (!DEMO_TENANT_ID) return null;
+  const tenantId = await getTenantId();
+  if (!tenantId) return null;
   try {
     const admin = createAdminClient();
     const { data } = await admin
       .from("tenants")
       .select("subscription_status")
-      .eq("id", DEMO_TENANT_ID)
+      .eq("id", tenantId)
       .single();
     return data?.subscription_status ?? null;
   } catch {
@@ -38,7 +38,7 @@ async function getSubscriptionStatus(): Promise<string | null> {
 }
 
 // ---------------------------------------------------------------------------
-// Role resolution — returns the authenticated user's role (or null in demo mode)
+// Role resolution — returns the authenticated user's role
 // ---------------------------------------------------------------------------
 
 async function resolveUserRole(): Promise<UserRole | null> {

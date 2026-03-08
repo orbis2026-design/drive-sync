@@ -11,6 +11,7 @@ import {
   type PurchaseOrderResult,
   type DeliveryType,
 } from "@/lib/supplier-api";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Zod schema — validates the Nexpart vehicle search fields (Issue #107)
@@ -66,12 +67,13 @@ export type ActiveWorkOrderSummary = {
 export async function fetchActiveWorkOrders(): Promise<
   { data: ActiveWorkOrderSummary[] } | { error: string }
 > {
-  const tenantId = process.env.DEMO_TENANT_ID;
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
 
   try {
     const rows = await prisma.workOrder.findMany({
       where: {
-        ...(tenantId ? { tenantId } : {}),
+        tenantId,
         status: {
           in: ["INTAKE", "ACTIVE", "PENDING_APPROVAL", "BLOCKED_WAITING_APPROVAL"],
         },

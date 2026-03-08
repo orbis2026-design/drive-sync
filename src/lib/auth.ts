@@ -131,6 +131,25 @@ export async function getUserRole(userId: string): Promise<UserRoleRow | null> {
 }
 
 // ---------------------------------------------------------------------------
+// getTenantId
+//
+// Convenience wrapper that resolves the authenticated user's tenant ID in
+// one call.  Returns null when no valid session exists or the user has no
+// role assignment (i.e. no tenant).
+// ---------------------------------------------------------------------------
+
+export async function getTenantId(): Promise<string | null> {
+  try {
+    const userId = await getSessionUserId();
+    if (!userId) return null;
+    const row = await getUserRole(userId);
+    return row?.tenantId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // getFleetClientId
 //
 // For a FLEET_CLIENT user, resolves the Client row that has been linked to

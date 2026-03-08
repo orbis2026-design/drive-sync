@@ -3,6 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -228,7 +229,7 @@ export async function processPayment(
   // When a job is closed, query the vehicle's oilType to find the matching
   // consumable and deduct the oil capacity (defaulting to 5 quarts if unknown).
   try {
-    const tenantId = process.env.DEMO_TENANT_ID;
+    const tenantId = await getTenantId();
     if (tenantId) {
       const wo = await prisma.workOrder.findUnique({
         where: { id: workOrderId },
