@@ -97,8 +97,9 @@ function Step1ShopProfile({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          filename: `logos/${Date.now()}-${file.name}`,
+          fileName: `logos/${Date.now()}-${file.name}`,
           contentType: file.type,
+          context: "logo",
         }),
       });
 
