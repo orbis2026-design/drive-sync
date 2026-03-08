@@ -198,6 +198,7 @@ enum WorkOrderStatus {
   INVOICED
   PAID
   BATCHED_PENDING_PAYMENT  // Rolled into a fleet batch invoice; awaiting Net-30 settlement
+  CANCELLED                // Work order was cancelled; triggers elastic dispatch gap detection
 }
 
 // ---------------------------------------------------------------------------

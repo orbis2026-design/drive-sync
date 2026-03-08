@@ -200,3 +200,83 @@ export async function unscheduleWorkOrder(
   revalidatePath("/calendar");
   return { success: true };
 }
+
+// ---------------------------------------------------------------------------
+// cancelWorkOrder (Issue #87 — Elastic Dispatch)
+// ---------------------------------------------------------------------------
+
+/**
+ * Marks a scheduled work order as CANCELLED.
+ * The CalendarClient uses this to trigger the ElasticDispatchPrompt so the
+ * mechanic can optionally notify the next queued client of an earlier arrival.
+ */
+export async function cancelWorkOrder(
+  workOrderId: string,
+): Promise<{ success: true; nextJob: ScheduledJob | null } | { error: string }> {
+  if (!workOrderId) {
+    return { error: "Missing work order ID." };
+  }
+
+  const tenantId = process.env.DEMO_TENANT_ID;
+
+  try {
+    // 1. Cancel the target work order and clear its slot
+    const cancelled = await prisma.workOrder.update({
+      where: { id: workOrderId },
+      // CANCELLED is added in migration 20260308300000
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data: { status: "CANCELLED" as any, scheduledAt: null },
+      select: { tenantId: true },
+    });
+
+    // 2. Find the next scheduled job for this tenant (soonest future scheduledAt)
+    const effectiveTenantId = tenantId ?? cancelled.tenantId;
+    const nextRaw = await prisma.workOrder.findFirst({
+      where: {
+        ...(effectiveTenantId ? { tenantId: effectiveTenantId } : {}),
+        scheduledAt: { gte: new Date() },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        status: { notIn: ["CANCELLED", "COMPLETE", "INVOICED", "PAID"] as any[] },
+      },
+      select: {
+        id: true,
+        title: true,
+        scheduledAt: true,
+        status: true,
+        client: { select: { firstName: true, lastName: true, zipCode: true } },
+        vehicle: { select: { make: true, model: true, year: true } },
+      },
+      orderBy: { scheduledAt: "asc" },
+    });
+
+    const nextClient = nextRaw?.client as
+      | { firstName: string; lastName: string; zipCode?: string | null }
+      | null;
+    const nextVehicle = nextRaw?.vehicle as
+      | { make: string; model: string; year: number }
+      | null;
+
+    const nextJob: ScheduledJob | null =
+      nextRaw?.scheduledAt && nextClient && nextVehicle
+        ? {
+            id: nextRaw.id,
+            title: nextRaw.title,
+            scheduledAt: (nextRaw.scheduledAt as Date).toISOString(),
+            durationMinutes: 60,
+            status: nextRaw.status as string,
+            client: {
+              firstName: nextClient.firstName,
+              lastName: nextClient.lastName,
+              zipCode: nextClient.zipCode ?? null,
+            },
+            vehicle: nextVehicle,
+          }
+        : null;
+
+    revalidatePath("/calendar");
+    return { success: true, nextJob };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Database error.";
+    return { error: message };
+  }
+}
