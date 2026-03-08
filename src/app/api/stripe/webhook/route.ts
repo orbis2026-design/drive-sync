@@ -24,6 +24,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
+import { decrementStockForWorkOrder } from "@/lib/inventory/auto-decrement";
 
 // ---------------------------------------------------------------------------
 // Status mapping helpers
@@ -192,6 +193,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               "[stripe/webhook] Failed to save stripe_customer_id (legacy):",
               error,
             );
+          }
+
+          // Auto-decrement van stock for the work order (best-effort)
+          const workOrderId = session.metadata?.workOrderId;
+          if (workOrderId) {
+            await decrementStockForWorkOrder(workOrderId, legacyTenantId);
           }
         } else if (ownerUserId && customerId) {
           // Subscription checkout completed — find tenant by owner_user_id.
