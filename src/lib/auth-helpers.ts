@@ -14,7 +14,7 @@
  * This module is CLIENT-SIDE ONLY — all WebAuthn calls require a browser.
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { getBrowserClient } from "@/lib/supabase/browser";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -23,19 +23,6 @@ import { createClient } from "@supabase/supabase-js";
 const DEVICE_LABEL_MAX_LENGTH = 120;
 
 // ─── Supabase browser client ──────────────────────────────────────────────────
-
-function getSupabaseBrowserClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key, {
-    auth: {
-      persistSession: true,
-      storageKey: "drive-sync-auth",
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-    },
-  });
-}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -64,7 +51,7 @@ export async function signInWithEmailPassword(
   email: string,
   password: string
 ): Promise<AuthResult> {
-  const supabase = getSupabaseBrowserClient();
+  const supabase = getBrowserClient();
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
@@ -91,7 +78,7 @@ export async function registerPasskey(): Promise<AuthResult> {
     };
   }
 
-  const supabase = getSupabaseBrowserClient();
+  const supabase = getBrowserClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -226,9 +213,9 @@ export async function signInWithPasskey(): Promise<AuthResult> {
 // ─── Sign out ─────────────────────────────────────────────────────────────────
 
 export async function signOut(): Promise<void> {
-  const supabase = getSupabaseBrowserClient();
+  const supabase = getBrowserClient();
   await supabase.auth.signOut();
 }
 
 // Re-export so consumers only need to import from auth-helpers
-export { base64ToBuffer, bufferToBase64, getSupabaseBrowserClient };
+export { base64ToBuffer, bufferToBase64, getBrowserClient as getSupabaseBrowserClient };

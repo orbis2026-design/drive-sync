@@ -1,23 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { getBrowserClient } from "@/lib/supabase/browser";
 import { provisionTenant } from "./actions";
-
-function getSupabaseClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      auth: {
-        persistSession: true,
-        storageKey: "drive-sync-auth",
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
-    },
-  );
-}
 
 export default function RegisterPage() {
   const [email, setEmail] = useState("");
@@ -42,7 +27,7 @@ export default function RegisterPage() {
 
     setStatus("loading");
 
-    const supabase = getSupabaseClient();
+    const supabase = getBrowserClient();
     const { data, error } = await supabase.auth.signUp({ email, password });
 
     if (error || !data.user) {

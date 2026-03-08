@@ -1,32 +1,16 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { getBrowserClient } from "@/lib/supabase/browser";
 import { sendShopMessage, fetchShopMessages } from "./actions";
 import type { ShopMessage } from "./actions";
-
-// ---------------------------------------------------------------------------
-// Supabase browser client (public anon key — safe for client-side real-time)
-// ---------------------------------------------------------------------------
-function getBrowserSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, anon, {
-    auth: {
-      persistSession: true,
-      storageKey: "drive-sync-auth",
-      autoRefreshToken: true,
-      detectSessionInUrl: false,
-    },
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Resolve the current user ID from the active Supabase session.
 // Falls back to "demo-user" when running without a real auth session.
 // ---------------------------------------------------------------------------
 async function resolveCurrentUserId(): Promise<string> {
-  const supabase = getBrowserSupabase();
+  const supabase = getBrowserClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -152,7 +136,7 @@ export default function ShopChatPage() {
   // ------------------------------------------------------------------
   useEffect(() => {
     const tenantId = process.env.NEXT_PUBLIC_DEMO_TENANT_ID;
-    const supabase = getBrowserSupabase();
+    const supabase = getBrowserClient();
 
     const channel = supabase
       .channel(`shop_messages:${activeChannel}`)
