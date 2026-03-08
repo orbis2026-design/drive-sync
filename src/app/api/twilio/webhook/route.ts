@@ -32,8 +32,8 @@ export async function POST(req: NextRequest) {
 
     const supabase = createAdminClient();
 
-    // Resolve tenant from the "To" number; fall back to DEMO_TENANT_ID
-    let tenantId = process.env.DEMO_TENANT_ID ?? null;
+    // Resolve tenant from the "To" Twilio number
+    let tenantId: string | null = null;
     if (to) {
       const { data: tenant } = await supabase
         .from("tenants")

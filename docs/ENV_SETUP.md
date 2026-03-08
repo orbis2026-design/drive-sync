@@ -72,9 +72,6 @@ NEXT_PUBLIC_PORTAL_BASE_URL=http://localhost:3000
 
 # Secret token that authorises the /api/lexicon/extract cron endpoint
 LEXICON_SECRET=
-
-# Demo tenant ID used by the jobs board (optional in production)
-DEMO_TENANT_ID=
 ```
 
 ---

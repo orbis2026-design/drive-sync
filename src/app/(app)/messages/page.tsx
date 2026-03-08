@@ -2,11 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRealtimeMessages, type Message } from "@/hooks/useRealtimeMessages";
-import { sendMessage, fetchClients } from "./actions";
-
-// ─── Config ───────────────────────────────────────────────────────────────────
-
-const DEMO_TENANT_ID = process.env.NEXT_PUBLIC_DEMO_TENANT_ID ?? "";
+import { sendMessage, fetchClients, getSessionTenantId } from "./actions";
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
@@ -56,10 +52,18 @@ export default function MessagesPage() {
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [tenantId, setTenantId] = useState<string>("");
+
+  // Resolve the tenant ID from the authenticated session
+  useEffect(() => {
+    getSessionTenantId().then((id) => {
+      if (id) setTenantId(id);
+    });
+  }, []);
 
   const { messages, isLoading, error, sendOptimistic, removeOptimistic } =
     useRealtimeMessages({
-      tenantId: DEMO_TENANT_ID,
+      tenantId,
       clientId: selectedClientId,
     });
 
@@ -87,7 +91,6 @@ export default function MessagesPage() {
 
     try {
       const result = await sendMessage({
-        tenantId: DEMO_TENANT_ID,
         clientId: selectedClientId,
         body,
       });

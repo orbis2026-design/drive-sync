@@ -11,6 +11,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { QaDispatchClient } from "./QaDispatchClient";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types shared with the client component
@@ -31,7 +32,6 @@ export type QaWorkOrder = {
 // Data fetching
 // ---------------------------------------------------------------------------
 
-const DEMO_TENANT_ID = process.env.DEMO_TENANT_ID ?? "";
 const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL ?? "").replace(/\/$/, "");
 
 /**
@@ -57,12 +57,13 @@ function parseMediaUrls(workOrderId: string, notes: string | null): string[] {
 }
 
 async function fetchQaQueue(): Promise<QaWorkOrder[]> {
-  if (!DEMO_TENANT_ID) return [];
+  const tenantId = await getTenantId();
+  if (!tenantId) return [];
 
   try {
     const rows = await prisma.workOrder.findMany({
       where: {
-        tenantId: DEMO_TENANT_ID,
+        tenantId,
         OR: [
           { hasDamageFlag: true },
           { status: "BLOCKED_WAITING_APPROVAL" },

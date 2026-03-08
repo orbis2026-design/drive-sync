@@ -18,7 +18,6 @@
  * Environment variables required:
  *   STRIPE_SECRET_KEY            — Stripe secret API key
  *   NEXT_PUBLIC_APP_URL          — Base URL of this app (for success/cancel redirects)
- *   DEMO_TENANT_ID               — Fallback tenant ID (work-order mode)
  */
 
 import { NextRequest, NextResponse } from "next/server";

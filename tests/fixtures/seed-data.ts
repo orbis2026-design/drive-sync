@@ -37,7 +37,6 @@ export interface SeedResult {
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-const DEMO_TENANT_ID = process.env.DEMO_TENANT_ID ?? "";
 
 const isStub =
   !SUPABASE_URL ||
@@ -110,17 +109,15 @@ export async function seedGoldenPathData(): Promise<SeedResult> {
     };
   }
 
-  // Use the pre-configured demo tenant when available, otherwise insert one.
-  let tenantId = DEMO_TENANT_ID;
+  // Insert a test tenant for E2E testing
+  let tenantId: string;
   let tenantName = "E2E Test Garage";
 
-  if (!tenantId) {
-    const tenantRow = await supabasePost("tenants", {
-      name: tenantName,
-      slug: `e2e-test-garage-${Date.now()}`,
-    });
-    tenantId = tenantRow.id as string;
-  }
+  const tenantRow = await supabasePost("tenants", {
+    name: tenantName,
+    slug: `e2e-test-garage-${Date.now()}`,
+  });
+  tenantId = tenantRow.id as string;
 
   const clientRow = await supabasePost("clients", {
     tenant_id: tenantId,
@@ -144,15 +141,12 @@ export async function seedGoldenPathData(): Promise<SeedResult> {
 
 /**
  * Remove the test client inserted by `seedGoldenPathData`.
- * The tenant row is preserved if it was the pre-existing DEMO_TENANT_ID.
  */
 export async function teardownGoldenPathData(seed: SeedResult): Promise<void> {
   if (isStub) return;
 
   await supabaseDelete("clients", "id", seed.client.id);
 
-  // Only delete the tenant if we created it (not the demo tenant).
-  if (seed.tenant.id !== DEMO_TENANT_ID) {
-    await supabaseDelete("tenants", "id", seed.tenant.id);
-  }
+  // Clean up the test tenant and client
+  await supabaseDelete("tenants", "id", seed.tenant.id);
 }
