@@ -1,10 +1,16 @@
 /**
- * parts-bridge.ts — Nexpart (WHI) Parts Bridge Adapter
+ * parts-bridge.ts — Nexpart (WHI) SOAP/REST Parts Bridge Adapter
  *
  * Provides a clean adapter for fetching live parts pricing from commercial
- * supplier accounts (O'Reilly, AutoZone, etc.) on a per-mechanic basis.
- * Each mechanic's `supplier_credentials_json` supplies the connection details,
- * so multiple tenants can have separate accounts with different distributors.
+ * supplier accounts (Nexpart/WHI, O'Reilly, AutoZone, etc.) on a per-mechanic
+ * basis. Each mechanic's `supplier_credentials_json` supplies the connection
+ * details, so multiple tenants can have separate accounts with different
+ * distributors.
+ *
+ * Authentication supports both:
+ *   • WHI/Nexpart style: username + password → token exchange
+ *   • OAuth 2.0 style: clientId + clientSecret → access_token
+ *   • Pre-issued token: token field used directly as Bearer
  *
  * In development / CI the mock implementation returns realistic brake pad,
  * rotor, and filter results keyed by VIN year/make/model so the UI is fully
@@ -15,17 +21,54 @@
 // Types
 // ---------------------------------------------------------------------------
 
-/** Per-tenant supplier credentials stored in `tenants.features_json`. */
+/** Per-tenant supplier credentials stored in `tenants.supplier_credentials_json`. */
 export interface SupplierCredentials {
   /** Base URL of the supplier's REST API (e.g. https://api.nexpart.com/v2). */
   baseUrl: string;
-  /** OAuth 2.0 client ID. */
-  clientId: string;
-  /** OAuth 2.0 client secret. */
-  clientSecret: string;
-  /** API key passed in the `X-Api-Key` header. */
-  apiKey: string;
+  /**
+   * WHI/Nexpart username (commercial account login).
+   * When present alongside `password`, used for token-exchange auth.
+   */
+  username?: string;
+  /**
+   * WHI/Nexpart password (commercial account password).
+   * Paired with `username` for the /auth/token exchange.
+   */
+  password?: string;
+  /**
+   * Pre-issued API token. Skips the token-exchange step entirely.
+   * Takes precedence over username/password when set.
+   */
+  token?: string;
+  /** OAuth 2.0 client ID (legacy OAuth flow). */
+  clientId?: string;
+  /** OAuth 2.0 client secret (legacy OAuth flow). */
+  clientSecret?: string;
+  /** API key passed in the `X-Api-Key` header (legacy key-based flow). */
+  apiKey?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
+/** Error types thrown by the bridge to allow route handlers to return precise HTTP codes. */
+export type PartsBridgeErrorType = "UNAUTHORIZED" | "NOT_FOUND" | "UPSTREAM_ERROR";
+
+/** Structured error thrown by PartsBridgeAdapter for known failure modes. */
+export class PartsBridgeError extends Error {
+  constructor(
+    public readonly type: PartsBridgeErrorType,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PartsBridgeError";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PartsSearchResult
+// ---------------------------------------------------------------------------
 
 /** A single part returned from the bridge adapter. */
 export interface PartsSearchResult {
@@ -62,7 +105,7 @@ interface CachedToken {
 }
 
 // ---------------------------------------------------------------------------
-// In-memory token cache (per-credentials, keyed by clientId)
+// In-memory token cache (per-credentials, keyed by baseUrl+username)
 // ---------------------------------------------------------------------------
 
 const _tokenCache = new Map<string, CachedToken>();
@@ -304,31 +347,132 @@ export class PartsBridgeAdapter {
   // Token management
   // -------------------------------------------------------------------------
 
-  /**
-   * Obtains (or returns a cached) OAuth Bearer token for the given credentials.
-   * Tokens are cached in a module-level Map keyed by `clientId`; each entry is
-   * reused until within `TOKEN_REFRESH_BUFFER_MS` of expiry.
+/**
+   * Obtains (or returns a cached) Bearer token for the given credentials.
+   * Tokens are cached in a module-level Map keyed by `baseUrl+username`;
+   * each entry is reused until within `TOKEN_REFRESH_BUFFER_MS` of expiry.
+   *
+   * Auth priority:
+   *   1. `token` field — used directly (no exchange needed).
+   *   2. `username` + `password` — POST to `/auth/token` (WHI/Nexpart style).
+   *   3. `clientId` + `clientSecret` — OAuth 2.0 client_credentials flow.
+   *   4. Dev fallback — synthetic token (no network call).
+   *
+   * @throws {PartsBridgeError} type="UNAUTHORIZED" if the exchange returns 401.
    */
   async getToken(credentials: SupplierCredentials): Promise<string> {
-    const cached = _tokenCache.get(credentials.clientId);
+    const cacheKey = `${credentials.baseUrl}::${credentials.username ?? credentials.clientId ?? "anon"}`;
+    const cached = _tokenCache.get(cacheKey);
     const now = Date.now();
 
     if (cached && cached.expiresAt - now > TOKEN_REFRESH_BUFFER_MS) {
       return cached.accessToken;
     }
 
-    // In production: POST credentials.baseUrl + "/oauth/token"
-    // with grant_type=client_credentials, client_id, client_secret
-    // and read `access_token` + `expires_in` from the JSON response.
-    void credentials; // suppress lint — used conceptually above
+    // --- Pre-issued token (highest priority) --------------------------------
+    if (credentials.token) {
+      const entry: CachedToken = {
+        accessToken: credentials.token,
+        expiresAt: now + 3_600_000, // treat as 1-hour validity
+      };
+      _tokenCache.set(cacheKey, entry);
+      return entry.accessToken;
+    }
 
-    const newToken: CachedToken = {
-      accessToken: `bridge-token-${credentials.clientId}-${now}`,
-      expiresAt: now + 3_600_000, // 1 hour
+    // --- WHI/Nexpart username+password token exchange -----------------------
+    if (credentials.username && credentials.password) {
+      const tokenUrl = `${credentials.baseUrl.replace(/\/$/, "")}/auth/token`;
+      let res: Response;
+      try {
+        res = await fetch(tokenUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: credentials.username,
+            password: credentials.password,
+            grant_type: "password",
+          }),
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new PartsBridgeError("UPSTREAM_ERROR", `Token endpoint unreachable: ${msg}`);
+      }
+
+      if (res.status === 401) {
+        throw new PartsBridgeError(
+          "UNAUTHORIZED",
+          "Supplier account credentials are invalid or the commercial account has expired.",
+        );
+      }
+
+      if (!res.ok) {
+        throw new PartsBridgeError(
+          "UPSTREAM_ERROR",
+          `Token exchange failed with HTTP ${res.status}.`,
+        );
+      }
+
+      const json = await res.json() as { access_token?: string; token?: string; expires_in?: number };
+      const accessToken = json.access_token ?? json.token;
+      if (!accessToken) {
+        throw new PartsBridgeError("UPSTREAM_ERROR", "Token response missing access_token field.");
+      }
+
+      const expiresIn = typeof json.expires_in === "number" ? json.expires_in * 1000 : 3_600_000;
+      const entry: CachedToken = { accessToken, expiresAt: now + expiresIn };
+      _tokenCache.set(cacheKey, entry);
+      return accessToken;
+    }
+
+    // --- OAuth 2.0 client_credentials flow ----------------------------------
+    if (credentials.clientId && credentials.clientSecret) {
+      const tokenUrl = `${credentials.baseUrl.replace(/\/$/, "")}/oauth/token`;
+      let res: Response;
+      try {
+        res = await fetch(tokenUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "client_credentials",
+            client_id: credentials.clientId,
+            client_secret: credentials.clientSecret,
+          }),
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new PartsBridgeError("UPSTREAM_ERROR", `OAuth endpoint unreachable: ${msg}`);
+      }
+
+      if (res.status === 401) {
+        throw new PartsBridgeError(
+          "UNAUTHORIZED",
+          "OAuth credentials rejected. The supplier API key may have expired.",
+        );
+      }
+
+      if (!res.ok) {
+        throw new PartsBridgeError("UPSTREAM_ERROR", `OAuth token request failed with HTTP ${res.status}.`);
+      }
+
+      const json = await res.json() as { access_token?: string; expires_in?: number };
+      const accessToken = json.access_token;
+      if (!accessToken) {
+        throw new PartsBridgeError("UPSTREAM_ERROR", "OAuth response missing access_token field.");
+      }
+
+      const expiresIn = typeof json.expires_in === "number" ? json.expires_in * 1000 : 3_600_000;
+      const entry: CachedToken = { accessToken, expiresAt: now + expiresIn };
+      _tokenCache.set(cacheKey, entry);
+      return accessToken;
+    }
+
+    // --- Dev fallback (no real credentials configured) ----------------------
+    const devToken: CachedToken = {
+      accessToken: `dev-bridge-token-${now}`,
+      expiresAt: now + 3_600_000,
     };
-
-    _tokenCache.set(credentials.clientId, newToken);
-    return newToken.accessToken;
+    _tokenCache.set(cacheKey, devToken);
+    return devToken.accessToken;
   }
 
   // -------------------------------------------------------------------------
@@ -338,23 +482,130 @@ export class PartsBridgeAdapter {
   /**
    * Fetches live parts pricing from the supplier identified by `credentials`.
    *
+   * When live credentials are configured (`username`/`password`/`token` or
+   * OAuth), issues a real JSON request to the supplier API and maps the
+   * response to the internal `PartsSearchResult[]` schema.
+   *
+   * Falls back to the local mock catalogue when no real credentials are
+   * present so the full UI flow is exercisable in development without a live
+   * vendor account.
+   *
    * @param query - Free-text search (e.g. "brake pads", "oil filter").
    * @param vin   - 17-character VIN used to filter fitment-compatible results.
    * @param credentials - Per-tenant supplier connection details.
    * @returns Array of matching parts in the internal `PartsSearchResult` schema.
+   *
+   * @throws {PartsBridgeError} type="UNAUTHORIZED" — supplier credentials
+   *   expired or invalid (mechanic's commercial account needs renewal).
+   * @throws {PartsBridgeError} type="NOT_FOUND" — no parts found at the
+   *   local warehouse (out of stock or unrecognised part number).
+   * @throws {PartsBridgeError} type="UPSTREAM_ERROR" — supplier API returned
+   *   an unexpected error.
    */
   async searchParts(
     query: string,
     vin: string,
     credentials: SupplierCredentials,
   ): Promise<PartsSearchResult[]> {
-    // Ensure we hold a valid token before making API calls.
-    await this.getToken(credentials);
+    // Obtain (or refresh) the auth token.
+    const token = await this.getToken(credentials);
 
+    const hasLiveCredentials = Boolean(
+      credentials.token ||
+      (credentials.username && credentials.password) ||
+      (credentials.clientId && credentials.clientSecret),
+    );
+
+    // --- Live implementation (real supplier API) ----------------------------
+    if (hasLiveCredentials) {
+      const searchUrl = `${credentials.baseUrl.replace(/\/$/, "")}/parts/search`;
+
+      // Build the WHI-compatible JSON search payload.
+      const payload = {
+        query,
+        vin,
+        // Include the API key in the body when provided (some WHI implementations
+        // require it here in addition to the Authorization header).
+        ...(credentials.apiKey ? { apiKey: credentials.apiKey } : {}),
+      };
+
+      let res: Response;
+      try {
+        res = await fetch(searchUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+            ...(credentials.apiKey ? { "X-Api-Key": credentials.apiKey } : {}),
+          },
+          body: JSON.stringify(payload),
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new PartsBridgeError("UPSTREAM_ERROR", `Parts search endpoint unreachable: ${msg}`);
+      }
+
+      if (res.status === 401) {
+        // Clear the cached token so the next request forces a fresh exchange.
+        const cacheKey = `${credentials.baseUrl}::${credentials.username ?? credentials.clientId ?? "anon"}`;
+        _tokenCache.delete(cacheKey);
+        throw new PartsBridgeError(
+          "UNAUTHORIZED",
+          "Supplier account credentials are expired. Please renew the commercial parts account.",
+        );
+      }
+
+      if (res.status === 404) {
+        // Out of stock / part not carried at the local warehouse.
+        throw new PartsBridgeError(
+          "NOT_FOUND",
+          "No matching parts found at the local warehouse. The part may be out of stock.",
+        );
+      }
+
+      if (!res.ok) {
+        throw new PartsBridgeError(
+          "UPSTREAM_ERROR",
+          `Parts search failed with HTTP ${res.status}.`,
+        );
+      }
+
+      // Map the live response to our internal schema.
+      const data = await res.json() as {
+        results?: unknown[];
+        parts?: unknown[];
+        data?: unknown[];
+      };
+
+      const rawParts = data.results ?? data.parts ?? data.data ?? [];
+      return (rawParts as Record<string, unknown>[]).map((p) => ({
+        partNumber: String(p.partNumber ?? p.part_number ?? p.sku ?? ""),
+        name: String(p.name ?? p.description ?? "Unknown Part"),
+        brand: String(p.brand ?? p.manufacturer ?? ""),
+        wholesaleCostCents: Math.round(
+          (typeof p.wholesaleCost === "number" ? p.wholesaleCost :
+           typeof p.wholesale_cost === "number" ? p.wholesale_cost :
+           typeof p.cost === "number" ? p.cost : 0) * 100,
+        ),
+        retailSuggestedCents: Math.round(
+          (typeof p.retailPrice === "number" ? p.retailPrice :
+           typeof p.retail_price === "number" ? p.retail_price :
+           typeof p.price === "number" ? p.price : 0) * 100,
+        ),
+        availabilityCount: typeof p.qty === "number" ? p.qty :
+          typeof p.quantity === "number" ? p.quantity :
+          typeof p.availableQty === "number" ? p.availableQty : 0,
+        etaMinutes: typeof p.etaMinutes === "number" ? p.etaMinutes :
+          typeof p.eta_minutes === "number" ? p.eta_minutes : 0,
+        supplier: String(p.supplier ?? p.source ?? credentials.baseUrl),
+        fitment: null,
+      }));
+    }
+
+    // --- Mock implementation (no live credentials configured) ---------------
     const { year, make } = parseVin(vin);
     const queryLower = query.toLowerCase().trim();
 
-    // --- Mock implementation ------------------------------------------------
     // Filter the local catalogue by keyword match and VIN fitment.
     const matched = MOCK_PARTS.filter((part) => {
       // Keyword filter: query must overlap with at least one keyword.

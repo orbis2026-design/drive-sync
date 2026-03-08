@@ -32,7 +32,7 @@ export async function fetchConsumables(): Promise<
       orderBy: { name: "asc" },
     });
 
-    const data: ConsumableRow[] = rows.map((r) => ({
+    const data: ConsumableRow[] = rows.map((r: (typeof rows)[number]) => ({
       id: r.id,
       name: r.name,
       unit: r.unit,

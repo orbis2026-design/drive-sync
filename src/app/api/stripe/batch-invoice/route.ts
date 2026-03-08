@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
       where: {
         id: { in: workOrderIds },
         clientId,
-        status: { in: ["COMPLETE", "INVOICED"] },
+        status: { in: ["COMPLETE", "INVOICED", "PENDING_APPROVAL"] },
       },
       select: {
         id: true,
@@ -198,6 +198,9 @@ export async function POST(req: NextRequest) {
 
     // Finalize the invoice so it's ready to send (moves from draft → open).
     invoice = await stripe.invoices.finalizeInvoice(invoice.id);
+
+    // Email the consolidated Net-30 bill directly to the Fleet Manager.
+    invoice = await stripe.invoices.sendInvoice(invoice.id);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Stripe error.";
     return NextResponse.json({ error: message }, { status: 500 });

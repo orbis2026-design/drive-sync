@@ -144,15 +144,14 @@ export function MediaVault({ workOrderId }: { workOrderId: string }) {
 
       setUploading(true);
       try {
-        // 1. Get a pre-signed upload URL
-        const presignRes = await fetch("/api/upload", {
+        // 1. Get a short-lived (60-second) pre-signed upload URL
+        const presignRes = await fetch("/api/upload/presigned", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             fileName: file.name,
             contentType: file.type,
             workOrderId,
-            context: "vault",
             contentLength: file.size,
           }),
         });

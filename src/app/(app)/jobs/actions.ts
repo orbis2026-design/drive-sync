@@ -76,7 +76,7 @@ export async function fetchActiveJobs(): Promise<
       },
     });
 
-    const jobs: JobCard[] = rows.map((row) => {
+    const jobs: JobCard[] = rows.map((row: (typeof rows)[number]) => {
       // Only surface a dollar total once the quote has been started.
       const hasQuote = row.laborCents > 0 || row.partsCents > 0;
       const subtotal = row.laborCents + row.partsCents;

@@ -36,31 +36,120 @@ const ACTIVITY_EVENTS: (keyof WindowEventMap)[] = [
 // WebAuthn helper — triggers a platform authenticator assertion (biometric)
 // ---------------------------------------------------------------------------
 
+/**
+ * Requests a fresh cryptographic challenge from the server, invokes the
+ * device's biometric authenticator, and cryptographically verifies the
+ * resulting assertion server-side.
+ *
+ * Returns `true` when the assertion is verified, `false` when the user
+ * cancels, biometrics fail, or no passkey is registered on this device.
+ */
 async function verifyWithBiometrics(): Promise<boolean> {
   if (!window.PublicKeyCredential) {
     // WebAuthn not supported in this browser/context — fall back to unlocked.
     return true;
   }
 
+  // Step 1: Fetch a server-issued challenge.
+  let challengeId: string;
+  let challengeB64: string;
   try {
-    // Issue a userVerification-only assertion. We don't validate the signed
-    // response server-side here; the purpose is solely to confirm that the
-    // physically-present user can pass their device's biometric check.
+    const challengeRes = await fetch("/api/auth/webauthn", { method: "GET" });
+    if (!challengeRes.ok) {
+      console.warn("[InactivityLock] Challenge fetch failed, using local fallback.");
+      // Graceful degradation: fall back to a client-side-only challenge.
+      return await verifyLocalBiometrics();
+    }
+    const json = await challengeRes.json() as { challengeId: string; challenge: string };
+    challengeId = json.challengeId;
+    challengeB64 = json.challenge;
+  } catch {
+    // Network error — degrade gracefully.
+    return await verifyLocalBiometrics();
+  }
+
+  // Decode base64url challenge to Uint8Array for the browser API.
+  function base64urlToBuffer(b64: string): ArrayBuffer {
+    const padded = b64.replace(/-/g, "+").replace(/_/g, "/").padEnd(
+      b64.length + ((4 - (b64.length % 4)) % 4),
+      "=",
+    );
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  function bufferToBase64url(buf: ArrayBuffer): string {
+    return btoa(String.fromCharCode(...new Uint8Array(buf)))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  }
+
+  // Step 2: Invoke the device biometric/PIN authenticator.
+  let assertion: PublicKeyCredential;
+  try {
+    assertion = (await navigator.credentials.get({
+      publicKey: {
+        challenge: base64urlToBuffer(challengeB64),
+        timeout: 60_000,
+        userVerification: "required",
+        rpId:
+          process.env.NEXT_PUBLIC_WEBAUTHN_RP_ID ?? window.location.hostname,
+      },
+    })) as PublicKeyCredential;
+  } catch {
+    // User cancelled or no passkey registered on this device.
+    return false;
+  }
+
+  if (!assertion) return false;
+
+  const assertionResponse = assertion.response as AuthenticatorAssertionResponse;
+
+  // Step 3: Send the assertion to the server for cryptographic verification.
+  try {
+    const verifyRes = await fetch("/api/auth/webauthn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        challengeId,
+        credentialId: bufferToBase64url(assertion.rawId),
+        authenticatorData: bufferToBase64url(assertionResponse.authenticatorData),
+        clientDataJSON: bufferToBase64url(assertionResponse.clientDataJSON),
+        signature: bufferToBase64url(assertionResponse.signature),
+        userHandle: assertionResponse.userHandle
+          ? bufferToBase64url(assertionResponse.userHandle)
+          : null,
+      }),
+    });
+
+    if (!verifyRes.ok) return false;
+    const { verified } = await verifyRes.json() as { verified: boolean };
+    return verified === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Local-only biometric fallback used when the server challenge endpoint is
+ * unreachable. Verifies physical presence without a server round-trip; does
+ * NOT perform cryptographic signature verification.
+ */
+async function verifyLocalBiometrics(): Promise<boolean> {
+  try {
     const credential = await navigator.credentials.get({
       publicKey: {
         challenge: crypto.getRandomValues(new Uint8Array(32)),
         timeout: 60_000,
         userVerification: "required",
-        // Use the registered RP domain from env var when available.
-        // Falls back to the effective hostname (strips port) so localhost
-        // and production both work without crashes.
         rpId: process.env.NEXT_PUBLIC_WEBAUTHN_RP_ID ?? window.location.hostname,
       },
     });
     return credential !== null;
   } catch {
-    // User cancelled or device does not have a registered passkey.
-    // Return false so the lock screen stays visible.
     return false;
   }
 }
