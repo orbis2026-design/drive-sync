@@ -2,7 +2,8 @@
 
 import { useState, useCallback } from "react";
 import type { CalendarData, ScheduledJob, BacklogJob } from "./actions";
-import { scheduleWorkOrder, unscheduleWorkOrder } from "./actions";
+import { scheduleWorkOrder, unscheduleWorkOrder, cancelWorkOrder } from "./actions";
+import { ElasticDispatchPrompt } from "./live-dispatch";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -352,6 +353,12 @@ export function CalendarClient({ initial }: { initial: CalendarData }) {
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(null);
   const [detailJob, setDetailJob] = useState<ScheduledJob | null>(null);
 
+  // Elastic dispatch state (Issue #87)
+  const [dispatchPrompt, setDispatchPrompt] = useState<{
+    cancelledJobId: string;
+    nextJob: ScheduledJob | null;
+  } | null>(null);
+
   const weekDays = getWeekDays(currentDate);
 
   function showToast(msg: string, error = false) {
@@ -413,6 +420,32 @@ export function CalendarClient({ initial }: { initial: CalendarData }) {
         }));
         setDetailJob(null);
         showToast("Job returned to backlog");
+      }
+      setBusy(false);
+    },
+    [busy],
+  );
+
+  // Issue #87 — Elastic Dispatch: cancel a job and check for schedule gap
+  const handleCancel = useCallback(
+    async (job: ScheduledJob) => {
+      if (busy) return;
+      setBusy(true);
+      const result = await cancelWorkOrder(job.id);
+      if ("error" in result) {
+        showToast(result.error, true);
+      } else {
+        // Remove the cancelled job from the scheduled list
+        setData((prev) => ({
+          scheduled: prev.scheduled.filter((j) => j.id !== job.id),
+          backlog: prev.backlog,
+        }));
+        setDetailJob(null);
+        showToast("Job cancelled");
+        // If there is a next job, surface the ElasticDispatchPrompt
+        if (result.nextJob) {
+          setDispatchPrompt({ cancelledJobId: job.id, nextJob: result.nextJob });
+        }
       }
       setBusy(false);
     },
@@ -540,23 +573,46 @@ export function CalendarClient({ initial }: { initial: CalendarData }) {
                 timeStyle: "short",
               })}
             </p>
-            <div className="flex gap-3">
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-3">
+                <button
+                  onClick={() => handleUnschedule(detailJob)}
+                  disabled={busy}
+                  className="flex-1 py-3 rounded-2xl bg-red-900 text-red-300 font-bold text-sm hover:bg-red-800 transition-colors disabled:opacity-50"
+                >
+                  Move to Backlog
+                </button>
+                <button
+                  onClick={() => setDetailJob(null)}
+                  className="flex-1 py-3 rounded-2xl bg-gray-800 text-white font-bold text-sm hover:bg-gray-700 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+              {/* Cancel Job — triggers Elastic Dispatch gap detection (Issue #87) */}
               <button
-                onClick={() => handleUnschedule(detailJob)}
+                onClick={() => handleCancel(detailJob)}
                 disabled={busy}
-                className="flex-1 py-3 rounded-2xl bg-red-900 text-red-300 font-bold text-sm hover:bg-red-800 transition-colors disabled:opacity-50"
+                className="w-full py-2.5 rounded-2xl border border-red-800 text-red-400 font-bold text-xs uppercase tracking-wide hover:bg-red-950 transition-colors disabled:opacity-50"
               >
-                Move to Backlog
-              </button>
-              <button
-                onClick={() => setDetailJob(null)}
-                className="flex-1 py-3 rounded-2xl bg-gray-800 text-white font-bold text-sm hover:bg-gray-700 transition-colors"
-              >
-                Close
+                ✕ Cancel Job
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Elastic Dispatch prompt — shown after a cancellation creates a gap (Issue #87) */}
+      {dispatchPrompt && (
+        <ElasticDispatchPrompt
+          cancelledJobId={dispatchPrompt.cancelledJobId}
+          nextJob={dispatchPrompt.nextJob}
+          onDismiss={() => setDispatchPrompt(null)}
+          onConfirm={() => {
+            setDispatchPrompt(null);
+            showToast("Client notified of earlier arrival ✓");
+          }}
+        />
       )}
 
       {/* Backlog drawer */}

@@ -41,7 +41,8 @@ do $$ begin
     'COMPLETE',
     'INVOICED',
     'PAID',
-    'BATCHED_PENDING_PAYMENT'
+    'BATCHED_PENDING_PAYMENT',
+    'CANCELLED'
   );
 exception when duplicate_object then null;
 end $$;
