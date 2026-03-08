@@ -80,8 +80,8 @@ async function extractPortalUrl(page: Page): Promise<string | null> {
     return urlInput.inputValue();
   }
 
-  // Fallback: find an anchor tag pointing to /portal/
-  const portalLink = page.locator('a[href*="/portal/"]').first();
+  // Fallback: find a link pointing to /portal/
+  const portalLink = page.getByRole("link", { name: /portal/i }).first();
   if (await portalLink.isVisible({ timeout: 3_000 }).catch(() => false)) {
     return portalLink.getAttribute("href");
   }
@@ -128,100 +128,110 @@ test.describe("Golden Path — Multi-Context Revenue Loop", () => {
   test("Mechanic: creates WorkOrder and generates a Quote", async () => {
     const page: Page = await mechanicContext.newPage();
 
-    // Mock the CarMD/lexicon extract endpoint.
-    await page.route("**/api/lexicon/extract", (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(MOCK_VEHICLE_RESPONSE),
+    await test.step("Mock the CarMD/lexicon extract endpoint", async () => {
+      await page.route("**/api/lexicon/extract", (route) => {
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(MOCK_VEHICLE_RESPONSE),
+        });
       });
     });
 
     // Step 1 — Navigate to intake.
-    await page.goto(`${BASE_URL}/intake`);
-    await page.waitForLoadState("domcontentloaded");
+    await test.step("Step 1: Navigate to /intake", async () => {
+      await page.goto(`${BASE_URL}/intake`);
+      await page.waitForLoadState("domcontentloaded");
 
-    const bodyText = await page.locator("body").innerText();
-    expect(bodyText.trim().length).toBeGreaterThan(0);
+      const bodyText = await page.locator("body").innerText();
+      expect(bodyText.trim().length).toBeGreaterThan(0);
+    });
 
     // Step 2 — Fill the VIN.
-    const vinInput = page.getByLabel(/VIN/i)
-      .or(page.getByPlaceholder(/VIN/i))
-      .first();
+    await test.step("Step 2: Fill the VIN input", async () => {
+      const vinInput = page.getByLabel(/VIN/i)
+        .or(page.getByPlaceholder(/VIN/i))
+        .first();
 
-    if (await vinInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await vinInput.fill(TEST_VIN);
-    }
+      if (await vinInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await vinInput.fill(TEST_VIN);
+      }
+    });
 
     // Step 3 — Submit VIN decode / create work order.
-    const submitBtn = page
-      .getByRole("button", { name: /decode|scan|lookup|create.*work.*order/i })
-      .first();
+    await test.step("Step 3: Submit VIN decode / create work order", async () => {
+      const submitBtn = page
+        .getByRole("button", { name: /decode|scan|lookup|create.*work.*order/i })
+        .first();
 
-    if (await submitBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      // Only attempt to click if the button is actually enabled (form validation satisfied).
-      // In CI the intake form may require additional fields beyond the VIN,
-      // or the page may have redirected to the auth gate — skip gracefully.
-      const isEnabled = await submitBtn.isEnabled({ timeout: 3_000 }).catch(() => false);
-      if (isEnabled) {
-        await submitBtn.click();
-        await page.waitForLoadState("domcontentloaded");
+      if (await submitBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        const isEnabled = await submitBtn.isEnabled({ timeout: 3_000 }).catch(() => false);
+        if (isEnabled) {
+          await submitBtn.click();
+          await page.waitForLoadState("domcontentloaded");
+        }
       }
-    }
+    });
 
     // Step 4 — Add a Part ($100) if the builder UI is accessible.
-    const partInput = page.getByPlaceholder(/part name/i).first();
-    if (await partInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await partInput.fill("Front Brake Pads");
+    await test.step("Step 4: Add a Part ($100) and a Labor Operation ($100)", async () => {
+      const partInput = page.getByPlaceholder(/part name/i).first();
+      if (await partInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await partInput.fill("Front Brake Pads");
 
-      const partCostInput = page.getByPlaceholder(/cost|price/i).first();
-      if (await partCostInput.isVisible().catch(() => false)) {
-        await partCostInput.fill("100");
+        const partCostInput = page.getByPlaceholder(/cost|price/i).first();
+        if (await partCostInput.isVisible().catch(() => false)) {
+          await partCostInput.fill("100");
+        }
+
+        const addPartBtn = page.getByRole("button", { name: /add part/i }).first();
+        if (await addPartBtn.isVisible().catch(() => false)) {
+          await addPartBtn.click();
+        }
       }
 
-      const addPartBtn = page.getByRole("button", { name: /add part/i }).first();
-      if (await addPartBtn.isVisible().catch(() => false)) {
-        await addPartBtn.click();
-      }
-    }
+      // Add a Labor Operation ($100).
+      const laborInput = page.getByPlaceholder(/labor.*desc|labor.*name/i).first();
+      if (await laborInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
+        await laborInput.fill("Brake Pad Replacement");
 
-    // Add a Labor Operation ($100).
-    const laborInput = page.getByPlaceholder(/labor.*desc|labor.*name/i).first();
-    if (await laborInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await laborInput.fill("Brake Pad Replacement");
+        const laborCostInput = page
+          .getByPlaceholder(/labor.*cost|labor.*rate/i)
+          .first();
+        if (await laborCostInput.isVisible().catch(() => false)) {
+          await laborCostInput.fill("100");
+        }
 
-      const laborCostInput = page
-        .getByPlaceholder(/labor.*cost|labor.*rate/i)
-        .first();
-      if (await laborCostInput.isVisible().catch(() => false)) {
-        await laborCostInput.fill("100");
+        const addLaborBtn = page
+          .getByRole("button", { name: /add labor/i })
+          .first();
+        if (await addLaborBtn.isVisible().catch(() => false)) {
+          await addLaborBtn.click();
+        }
       }
-
-      const addLaborBtn = page
-        .getByRole("button", { name: /add labor/i })
-        .first();
-      if (await addLaborBtn.isVisible().catch(() => false)) {
-        await addLaborBtn.click();
-      }
-    }
+    });
 
     // Step 5 — Click "Generate Quote".
-    const generateQuoteBtn = page
-      .getByRole("button", { name: /generate.*quote|send.*quote|create.*quote/i })
-      .or(page.getByRole("link", { name: /generate.*quote|send.*quote/i }))
-      .first();
+    await test.step("Step 5: Click Generate Quote", async () => {
+      const generateQuoteBtn = page
+        .getByRole("button", { name: /generate.*quote|send.*quote|create.*quote/i })
+        .or(page.getByRole("link", { name: /generate.*quote|send.*quote/i }))
+        .first();
 
-    if (await generateQuoteBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await generateQuoteBtn.click();
-      await page.waitForLoadState("domcontentloaded");
-    }
+      if (await generateQuoteBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await generateQuoteBtn.click();
+        await page.waitForLoadState("domcontentloaded");
+      }
+    });
 
     // Step 6 — Extract the Client Portal URL.
-    portalUrl = await extractPortalUrl(page);
+    await test.step("Step 6: Extract the Client Portal URL", async () => {
+      portalUrl = await extractPortalUrl(page);
 
-    if (portalUrl && !portalUrl.startsWith("http")) {
-      portalUrl = `${BASE_URL}${portalUrl}`;
-    }
+      if (portalUrl && !portalUrl.startsWith("http")) {
+        portalUrl = `${BASE_URL}${portalUrl}`;
+      }
+    });
 
     // The page should not have crashed at any point.
     await expect(page.locator("body")).toBeVisible();
@@ -239,41 +249,50 @@ test.describe("Golden Path — Multi-Context Revenue Loop", () => {
       portalUrl ?? `${BASE_URL}/portal/invalid-token-for-e2e-test`;
     const page: Page = await clientContext.newPage();
 
-    await page.goto(targetUrl);
-    await page.waitForLoadState("domcontentloaded");
-
-    const bodyText = await page.locator("body").innerText();
-    expect(bodyText.trim().length).toBeGreaterThan(0);
-
-    // Step 8 — Assert the math if a real portal is rendered.
-    const totalElement = page
-      .getByTestId("quote-total")
-      .or(page.getByText(/\$200|\$210|\$220/)) // $200 + tax variants
-      .first();
-
-    const totalVisible = await totalElement
-      .isVisible({ timeout: 5_000 })
-      .catch(() => false);
-
-    if (totalVisible) {
-      await expect(totalElement).toBeVisible();
-    }
-
-    // Step 9 — Draw on the signature canvas.
-    await drawSignatureOnCanvas(page);
-
-    // Step 10 — Click "Authorize Quote" / "Approve".
-    const authorizeBtn = page
-      .getByRole("button", { name: /authorize|approve|sign.*approve/i })
-      .first();
-
-    if (await authorizeBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await authorizeBtn.click();
+    // Step 7 — Navigate to the Client Portal URL.
+    await test.step("Step 7: Navigate to the Client Portal URL", async () => {
+      await page.goto(targetUrl);
       await page.waitForLoadState("domcontentloaded");
 
-      // After approval, should not be a crash.
-      await expect(page.locator("body")).toBeVisible();
-    }
+      const bodyText = await page.locator("body").innerText();
+      expect(bodyText.trim().length).toBeGreaterThan(0);
+    });
+
+    // Step 8 — Assert the math if a real portal is rendered.
+    await test.step("Step 8: Assert the quote total is correct", async () => {
+      const totalElement = page
+        .getByTestId("quote-total")
+        .or(page.getByText(/\$200|\$210|\$220/)) // $200 + tax variants
+        .first();
+
+      const totalVisible = await totalElement
+        .isVisible({ timeout: 5_000 })
+        .catch(() => false);
+
+      if (totalVisible) {
+        await expect(totalElement).toBeVisible();
+      }
+    });
+
+    // Step 9 — Draw on the signature canvas.
+    await test.step("Step 9: Draw signature on canvas", async () => {
+      await drawSignatureOnCanvas(page);
+    });
+
+    // Step 10 — Click "Authorize Quote" / "Approve".
+    await test.step("Step 10: Click Authorize Quote / Approve", async () => {
+      const authorizeBtn = page
+        .getByRole("button", { name: /authorize|approve|sign.*approve/i })
+        .first();
+
+      if (await authorizeBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await authorizeBtn.click();
+        await page.waitForLoadState("domcontentloaded");
+
+        // After approval, should not be a crash.
+        await expect(page.locator("body")).toBeVisible();
+      }
+    });
 
     await page.close();
   });
@@ -288,44 +307,48 @@ test.describe("Golden Path — Multi-Context Revenue Loop", () => {
     const page: Page = await mechanicContext.newPage();
 
     // Step 11 — Navigate to the jobs board to check status.
-    await page.goto(`${BASE_URL}/jobs`);
-    await page.waitForLoadState("domcontentloaded");
+    await test.step("Step 11: Navigate to /jobs and verify status", async () => {
+      await page.goto(`${BASE_URL}/jobs`);
+      await page.waitForLoadState("domcontentloaded");
 
-    // Step 12 — The UI should reflect COMPLETE / APPROVED (via Real-Time or page refresh).
-    // In a full-stack environment this would show "COMPLETE" on the job card.
-    const bodyText = await page.locator("body").innerText();
-    expect(bodyText.trim().length).toBeGreaterThan(0);
-
-    // Step 13 — POST a simulated Stripe webhook for payment.
-    // The webhook endpoint validates a Stripe-Signature header; in CI we expect
-    // a 400 (invalid signature) rather than a 500 (server crash).
-    const webhookRes = await request.post(`${BASE_URL}/api/stripe/webhook`, {
-      data: {
-        type: "checkout.session.completed",
-        data: {
-          object: {
-            payment_status: "paid",
-            client_reference_id: seed.tenant.id,
-          },
-        },
-      },
-      headers: {
-        "Content-Type": "application/json",
-        "stripe-signature": "t=0,v1=mock-signature",
-      },
+      const bodyText = await page.locator("body").innerText();
+      expect(bodyText.trim().length).toBeGreaterThan(0);
     });
 
-    // We expect one of two non-crash responses:
-    //   400 — Stripe signature verification rejected our mock signature (expected
-    //          when STRIPE_WEBHOOK_SECRET is configured but signature is invalid).
-    //   500 — STRIPE_WEBHOOK_SECRET is not set in this environment (CI stub).
-    // Both are acceptable; what is NOT acceptable is a 502/503 server crash.
-    expect([400, 500]).toContain(webhookRes.status());
+    // Step 13 — POST a simulated Stripe webhook for payment.
+    await test.step("Step 13: POST simulated Stripe webhook for payment", async () => {
+      // The webhook endpoint validates a Stripe-Signature header; in CI we expect
+      // a 400 (invalid signature) rather than a 500 (server crash).
+      const webhookRes = await request.post(`${BASE_URL}/api/stripe/webhook`, {
+        data: {
+          type: "checkout.session.completed",
+          data: {
+            object: {
+              payment_status: "paid",
+              client_reference_id: seed.tenant.id,
+            },
+          },
+        },
+        headers: {
+          "Content-Type": "application/json",
+          "stripe-signature": "t=0,v1=mock-signature",
+        },
+      });
+
+      // We expect one of two non-crash responses:
+      //   400 — Stripe signature verification rejected our mock signature (expected
+      //          when STRIPE_WEBHOOK_SECRET is configured but signature is invalid).
+      //   500 — STRIPE_WEBHOOK_SECRET is not set in this environment (CI stub).
+      // Both are acceptable; what is NOT acceptable is a 502/503 server crash.
+      expect([400, 500]).toContain(webhookRes.status());
+    });
 
     // Step 14 — The app must remain stable; no crash boundary visible.
-    await page.reload();
-    await page.waitForLoadState("domcontentloaded");
-    await expect(page.getByText(/dropped a wrench/i)).not.toBeVisible();
+    await test.step("Step 14: Verify app stability after webhook", async () => {
+      await page.reload();
+      await page.waitForLoadState("domcontentloaded");
+      await expect(page.getByText(/dropped a wrench/i)).not.toBeVisible();
+    });
 
     await page.close();
   });
