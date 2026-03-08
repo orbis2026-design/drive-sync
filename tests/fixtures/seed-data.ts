@@ -110,14 +110,13 @@ export async function seedGoldenPathData(): Promise<SeedResult> {
   }
 
   // Insert a test tenant for E2E testing
-  let tenantId: string;
-  let tenantName = "E2E Test Garage";
+  const tenantName = "E2E Test Garage";
 
   const tenantRow = await supabasePost("tenants", {
     name: tenantName,
     slug: `e2e-test-garage-${Date.now()}`,
   });
-  tenantId = tenantRow.id as string;
+  const tenantId = tenantRow.id as string;
 
   const clientRow = await supabasePost("clients", {
     tenant_id: tenantId,

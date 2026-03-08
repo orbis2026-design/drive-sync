@@ -4,11 +4,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantId } from "@/lib/auth";
 
 export async function sendMessage(payload: {
-  tenantId?: string;
   clientId: string | null;
   body: string;
 }): Promise<{ success: true } | { error: string }> {
-  const tenantId = payload.tenantId ?? (await getTenantId());
+  const tenantId = await getTenantId();
   if (!tenantId) return { error: "Authentication required." };
   if (!payload.body.trim()) return { error: "Message body cannot be empty." };
 

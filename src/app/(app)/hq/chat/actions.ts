@@ -30,7 +30,8 @@ export async function sendShopMessage(
   const tenantId = await getTenantId();
   if (!tenantId) return { error: "Authentication required." };
 
-  const userId = (await getSessionUserId()) ?? "system";
+  const userId = await getSessionUserId();
+  if (!userId) return { error: "Authentication required." };
 
   const admin = createAdminClient();
   const { error } = await admin.from("shop_messages").insert({

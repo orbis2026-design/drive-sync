@@ -8,12 +8,12 @@ import type { ShopMessage } from "./actions";
 // ---------------------------------------------------------------------------
 // Resolve the current user ID from the active Supabase session.
 // ---------------------------------------------------------------------------
-async function resolveCurrentUserId(): Promise<string> {
+async function resolveCurrentUserId(): Promise<string | null> {
   const supabase = getBrowserClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  return session?.user?.id ?? "unknown";
+  return session?.user?.id ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -41,9 +41,9 @@ function MessageBubble({
   currentUserId,
 }: {
   msg: ShopMessage;
-  currentUserId: string;
+  currentUserId: string | null;
 }) {
-  const isOwn = msg.user_id === currentUserId && !msg.is_ai;
+  const isOwn = currentUserId !== null && msg.user_id === currentUserId && !msg.is_ai;
   const ts = new Date(msg.created_at).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -109,8 +109,8 @@ export default function ShopChatPage() {
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Resolve user ID from the live session; fall back to "unknown"
-  const [currentUserId, setCurrentUserId] = useState("unknown");
+  // Resolve user ID from the live session
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   useEffect(() => {
     resolveCurrentUserId().then(setCurrentUserId);
   }, []);

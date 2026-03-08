@@ -220,22 +220,23 @@ export async function cancelWorkOrder(
   }
 
   const tenantId = await getTenantId();
+  if (!tenantId) {
+    return { error: "Authentication required." };
+  }
 
   try {
     // 1. Cancel the target work order and clear its slot
-    const cancelled = await prisma.workOrder.update({
+    await prisma.workOrder.update({
       where: { id: workOrderId },
       // CANCELLED is added in migration 20260308300000
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       data: { status: "CANCELLED" as any, scheduledAt: null },
-      select: { tenantId: true },
     });
 
     // 2. Find the next scheduled job for this tenant (soonest future scheduledAt)
-    const effectiveTenantId = tenantId ?? cancelled.tenantId;
     const nextRaw = await prisma.workOrder.findFirst({
       where: {
-        tenantId: effectiveTenantId,
+        tenantId,
         scheduledAt: { gte: new Date() },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         status: { notIn: ["CANCELLED", "COMPLETE", "INVOICED", "PAID"] as any[] },
