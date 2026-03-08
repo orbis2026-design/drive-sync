@@ -56,7 +56,7 @@ function VinInput({ value, onChange, disabled }: VinInputProps) {
       maxLength={17}
       placeholder="1HGBH41JXMN109186"
       value={value}
-      onChange={(e) => onChange(e.target.value.replace(/[^A-HJ-NPR-Z0-9]/gi, "").toUpperCase())}
+      onChange={(e) => onChange(e.target.value.replace(/[^A-HJ-NPR-Z0-9]/g, "").toUpperCase())}
       disabled={disabled}
       aria-label="Vehicle Identification Number (VIN)"
       className={[

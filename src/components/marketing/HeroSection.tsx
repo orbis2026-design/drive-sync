@@ -11,6 +11,9 @@
 
 import Link from "next/link";
 
+/** Mock weekly revenue bar heights (% of max) for the dashboard graphic. */
+const MOCK_REVENUE_BARS = [40, 65, 50, 80, 55, 90, 75, 95];
+
 export function HeroSection() {
   return (
     <section className="relative flex flex-col items-center justify-center overflow-hidden bg-gray-950 px-4 py-24 sm:py-36 text-center lg:flex-row lg:items-center lg:text-left lg:py-28 lg:gap-12 lg:max-w-7xl lg:mx-auto lg:px-8">
@@ -110,7 +113,7 @@ export function HeroSection() {
               Weekly Revenue
             </p>
             <div className="flex items-end gap-1.5 h-16">
-              {[40, 65, 50, 80, 55, 90, 75, 95].map((h, i) => (
+              {MOCK_REVENUE_BARS.map((h, i) => (
                 <div
                   key={i}
                   className="flex-1 rounded-sm bg-gradient-to-t from-red-600 to-red-400 opacity-80"
