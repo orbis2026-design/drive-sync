@@ -7,7 +7,13 @@ export const metadata = {
 };
 
 export default async function CalendarPage() {
-  const result = await fetchCalendarData();
+  let result: Awaited<ReturnType<typeof fetchCalendarData>>;
+  try {
+    result = await fetchCalendarData();
+  } catch (err) {
+    console.error("[CalendarPage] Database query failed:", err);
+    result = { error: "Database syncing..." };
+  }
 
   const data =
     "data" in result

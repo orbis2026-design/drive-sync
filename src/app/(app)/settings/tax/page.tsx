@@ -22,7 +22,7 @@ import {
   formatCentsAsDollars,
   type TaxMatrix,
 } from "@/lib/math-engine";
-import { saveTaxMatrix } from "./actions";
+import { saveTaxMatrix, saveTaxSettings } from "./actions";
 
 // ---------------------------------------------------------------------------
 // US state tax presets
@@ -117,9 +117,40 @@ function parseDollar(value: string): number {
 export default function TaxSettingsPage() {
   const [matrix, setMatrix] = useState<TaxMatrix>({ ...DEFAULT_TAX_MATRIX });
   const [selectedState, setSelectedState] = useState<string>("");
+  const [shopZipCode, setShopZipCode] = useState<string>("");
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  function lookupDistrictTax() {
+    if (!shopZipCode) return;
+    const prefix = shopZipCode[0];
+    setSaved(false);
+    setError(null);
+    // Deterministic mock based on zip code prefix per issue spec
+    if (prefix === "9") {
+      // California district rates
+      setMatrix((m) => ({ ...m, parts_tax_rate: 0.0725, labor_tax_rate: 0.0 }));
+    } else if (prefix === "1") {
+      // New York district rates
+      setMatrix((m) => ({ ...m, parts_tax_rate: 0.08, labor_tax_rate: 0.0 }));
+    } else if (prefix === "3" || prefix === "4") {
+      // FL/GA/OH area rates
+      setMatrix((m) => ({ ...m, parts_tax_rate: 0.06, labor_tax_rate: 0.0 }));
+    } else if (prefix === "7") {
+      // TX/LA area rates
+      setMatrix((m) => ({ ...m, parts_tax_rate: 0.0625, labor_tax_rate: 0.0625 }));
+    } else if (prefix === "6") {
+      // IL/WI/MN area rates
+      setMatrix((m) => ({ ...m, parts_tax_rate: 0.0625, labor_tax_rate: 0.0 }));
+    } else if (prefix === "2") {
+      // VA/MD/NC area rates
+      setMatrix((m) => ({ ...m, parts_tax_rate: 0.06, labor_tax_rate: 0.0 }));
+    } else {
+      // Default fallback
+      setMatrix((m) => ({ ...m, parts_tax_rate: 0.055, labor_tax_rate: 0.0 }));
+    }
+  }
 
   function handleStatePreset(abbr: string) {
     setSelectedState(abbr);
@@ -149,9 +180,17 @@ export default function TaxSettingsPage() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
-      const result = await saveTaxMatrix(matrix);
-      if (result.error) {
-        setError(result.error);
+      const [matrixResult, settingsResult] = await Promise.all([
+        saveTaxMatrix(matrix),
+        saveTaxSettings({
+          shopZipCode,
+          partsTaxRate: matrix.parts_tax_rate,
+          laborTaxRate: matrix.labor_tax_rate,
+        }),
+      ]);
+      const err = matrixResult.error ?? settingsResult.error;
+      if (err) {
+        setError(err);
       } else {
         setSaved(true);
       }
@@ -191,6 +230,42 @@ export default function TaxSettingsPage() {
 
       {/* Form */}
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Shop Zip Code — district-level tax lookup */}
+        <div className="bg-gray-900 border border-blue-800/50 rounded-2xl p-5">
+          <label
+            htmlFor="shop_zip_code"
+            className="block text-sm font-semibold text-white mb-1"
+          >
+            Shop Zip Code
+            <span className="ml-2 text-xs text-gray-500 font-normal">
+              for district-level tax lookup
+            </span>
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              id="shop_zip_code"
+              type="text"
+              inputMode="numeric"
+              maxLength={10}
+              placeholder="e.g. 90210"
+              value={shopZipCode}
+              onChange={(e) => { setSaved(false); setShopZipCode(e.target.value.replace(/[^0-9-]/g, "")); }}
+              className="w-40 rounded-lg bg-gray-800 border border-gray-700 text-white px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-400"
+            />
+            <button
+              type="button"
+              onClick={lookupDistrictTax}
+              disabled={shopZipCode.length < 3}
+              className="rounded-lg bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 transition-colors"
+            >
+              Lookup District Tax
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Auto-fills Parts Tax and Labor Tax based on your district. You can still override manually below.
+          </p>
+        </div>
+
         {/* State auto-detect preset */}
         <div className="bg-gray-900 border border-amber-800/50 rounded-2xl p-5">
           <label

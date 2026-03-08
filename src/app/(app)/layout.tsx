@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CommandPaletteProvider } from "@/components/command-palette";
 import { NavController } from "@/components/nav-controller";
+import { NavShell } from "@/components/navigation/NavShell";
+import { TopBar } from "@/components/navigation/TopBar";
 import InactivityLock from "@/components/auth/InactivityLock";
 import {
   getSessionUserId,
@@ -97,8 +99,15 @@ export default async function AppLayout({
     <CommandPaletteProvider>
       <InactivityLock>
         <div className="flex min-h-screen bg-gray-950">
+          {/* Legacy NavController kept for backward compatibility */}
           <NavController role={role} />
-          <main className="flex-1 overflow-auto">{children}</main>
+          {/* New ARI-style desktop sidebar + mobile bottom nav (Issue #114) */}
+          <NavShell role={role} />
+          <main className="flex-1 overflow-auto lg:ml-0 flex flex-col">
+            {/* Contextual top bar (Issue #115) */}
+            <TopBar />
+            {children}
+          </main>
         </div>
       </InactivityLock>
     </CommandPaletteProvider>

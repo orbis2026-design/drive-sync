@@ -13,23 +13,19 @@ export const metadata = {
 // Page component
 // ---------------------------------------------------------------------------
 export default async function JobsPage() {
-  const result = await fetchActiveJobs();
+  let result: Awaited<ReturnType<typeof fetchActiveJobs>>;
+  try {
+    result = await fetchActiveJobs();
+  } catch (err) {
+    console.error("[JobsPage] Database query failed:", err);
+    result = { data: null, error: "Database syncing..." };
+  }
 
   // Graceful degradation: if the DB is unavailable, render an empty board.
   const jobs = "data" in result && result.data != null ? result.data : [];
 
   return (
     <div className="flex flex-col min-h-full">
-      {/* Page header */}
-      <header className="px-4 pt-6 pb-2">
-        <h1 className="text-4xl font-black text-white tracking-tight">
-          Active Jobs
-        </h1>
-        <p className="text-base text-gray-400 mt-1">
-          Tap a stage to expand · tap a card to continue.
-        </p>
-      </header>
-
       {/* Error banner — shown if DB query failed but we still render the board */}
       {"error" in result && (
         <div

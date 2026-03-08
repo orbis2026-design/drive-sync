@@ -35,6 +35,10 @@ model Tenant {
   // Tax & Environmental Fee Matrix (Issue #51)
   // Shape: { "labor_tax_rate": 0.00, "parts_tax_rate": 0.085, "environmental_fee_flat": 5.00, "environmental_fee_percentage": 0.00 }
   taxMatrixJson      Json               @default("{\"labor_tax_rate\":0.00,\"parts_tax_rate\":0.085,\"environmental_fee_flat\":5.00,\"environmental_fee_percentage\":0.00}")
+  // Zip-code based tax engine (Issue #113)
+  shopZipCode        String?            // Shop zip code for district-level tax lookup
+  partsTaxRate       Float              @default(0.085)
+  laborTaxRate       Float              @default(0.0)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 

@@ -56,7 +56,13 @@ function MetricBlock({
 // ---------------------------------------------------------------------------
 
 export default async function AnalyticsPage() {
-  const result = await fetchAnalytics();
+  let result: Awaited<ReturnType<typeof fetchAnalytics>>;
+  try {
+    result = await fetchAnalytics();
+  } catch (err) {
+    console.error("[AnalyticsPage] Database query failed:", err);
+    result = { data: null, error: "Database syncing..." };
+  }
 
   const data = "data" in result ? result.data : null;
   const error = "error" in result ? result.error : undefined;
@@ -66,16 +72,6 @@ export default async function AnalyticsPage() {
       className="flex flex-col min-h-full bg-gray-950"
       aria-label="Financials dashboard"
     >
-      {/* Page header */}
-      <header className="px-4 pt-6 pb-2">
-        <h1 className="text-4xl font-black text-white tracking-tight">
-          Financials
-        </h1>
-        <p className="text-base text-gray-500 mt-1">
-          Month-to-date · actual net profit
-        </p>
-      </header>
-
       {/* Error banner */}
       {error && (
         <div
