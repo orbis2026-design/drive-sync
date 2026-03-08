@@ -83,14 +83,18 @@ async function resolvePlateToVin(
       return null;
     }
 
-    const data = await res.json() as
-      | { vin?: string; VIN?: string; data?: { vin?: string } }
-      | null;
+    const raw: unknown = await res.json();
+
+    // Validate the response shape at runtime before accessing properties.
+    if (!raw || typeof raw !== "object") return null;
+    const data = raw as Record<string, unknown>;
 
     const vin =
-      data?.vin ??
-      data?.VIN ??
-      data?.data?.vin ??
+      (typeof data.vin === "string" ? data.vin : undefined) ??
+      (typeof data.VIN === "string" ? data.VIN : undefined) ??
+      (data.data && typeof data.data === "object" && typeof (data.data as Record<string, unknown>).vin === "string"
+        ? (data.data as Record<string, unknown>).vin as string
+        : undefined) ??
       null;
 
     if (typeof vin === "string" && /^[A-HJ-NPR-Z0-9]{17}$/i.test(vin)) {

@@ -62,15 +62,18 @@ function pruneExpiredChallenges() {
 export async function GET(): Promise<NextResponse> {
   pruneExpiredChallenges();
 
-  // Generate a cryptographically random 32-byte challenge.
-  const challengeBytes = new Uint8Array(
-    crypto.getRandomValues(new Uint8Array(32)).buffer as ArrayBuffer,
-  );
+  // Generate cryptographically random bytes. Cast to Uint8Array<ArrayBuffer>
+  // to satisfy the strict type expected by isoBase64URL.fromBuffer.
+  const challengeBytes = crypto.getRandomValues(
+    new Uint8Array(32),
+  ) as unknown as Uint8Array<ArrayBuffer>;
+
+  const idBytes = crypto.getRandomValues(
+    new Uint8Array(16),
+  ) as unknown as Uint8Array<ArrayBuffer>;
 
   // Unique opaque ID the client echoes back in the POST body.
-  const challengeId = isoBase64URL.fromBuffer(
-    new Uint8Array(crypto.getRandomValues(new Uint8Array(16)).buffer as ArrayBuffer),
-  );
+  const challengeId = isoBase64URL.fromBuffer(idBytes);
 
   _challenges.set(challengeId, {
     challenge: challengeBytes,
