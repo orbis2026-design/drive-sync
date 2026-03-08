@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { fetchWithTimeout } from "./fetch-timeout";
 
 /**
  * Read-only Supabase client for server-side queries.
@@ -20,5 +21,6 @@ export function createServerClient() {
 
   return createClient(url, key, {
     auth: { persistSession: false },
+    global: { fetch: fetchWithTimeout },
   });
 }

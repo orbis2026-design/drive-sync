@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { fetchWithTimeout } from "./fetch-timeout";
 
 /**
  * Supabase Admin client — bypasses Row Level Security (RLS).
@@ -20,5 +21,6 @@ export function createAdminClient() {
 
   return createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: fetchWithTimeout },
   });
 }

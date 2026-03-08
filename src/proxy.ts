@@ -15,6 +15,7 @@ const PUBLIC_PREFIXES = [
   "/offline",
   "/features/",
   "/tools/",
+  "/intake",
 ];
 
 const PUBLIC_EXACT = new Set(["/", "/auth/login", "/onboarding"]);
