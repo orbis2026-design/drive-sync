@@ -53,7 +53,7 @@ export type JobCard = {
  * the authenticated session's tenantId in production.
  */
 export async function fetchActiveJobs(): Promise<
-  { data: JobCard[] } | { data: null; error: string } | { error: string }
+  { data: JobCard[] } | { data: null; error: string }
 > {
   const tenantId = process.env.DEMO_TENANT_ID;
 
@@ -111,6 +111,6 @@ export async function fetchActiveJobs(): Promise<
       return { data: null, error: "Database synchronization pending or unreachable." };
     }
     const message = err instanceof Error ? err.message : "Failed to load jobs.";
-    return { error: message };
+    return { data: null, error: message };
   }
 }

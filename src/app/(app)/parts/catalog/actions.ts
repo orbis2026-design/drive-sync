@@ -33,6 +33,9 @@ export const NexpartVehicleSchema = z.object({
   vin: z
     .string()
     .max(17, "VIN must be 17 characters or fewer.")
+    .refine((v) => !v || v.trim() === "" || v.trim().length === 17, {
+      message: "VIN must be exactly 17 characters.",
+    })
     .optional()
     .transform((v) => (v?.trim() === "" ? undefined : v?.trim())),
 });

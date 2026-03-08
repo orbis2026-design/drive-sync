@@ -54,7 +54,7 @@ export type AnalyticsData = {
  * Net Profit = Gross Revenue − Parts COGS − Card Fees
  */
 export async function fetchAnalytics(): Promise<
-  { data: AnalyticsData } | { data: null; error: string } | { error: string }
+  { data: AnalyticsData } | { data: null; error: string }
 > {
   const tenantId = process.env.DEMO_TENANT_ID;
 
@@ -170,6 +170,6 @@ export async function fetchAnalytics(): Promise<
     }
     const message =
       err instanceof Error ? err.message : "Failed to load analytics.";
-    return { error: message };
+    return { data: null, error: message };
   }
 }
