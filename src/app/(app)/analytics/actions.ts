@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
 
 // ---------------------------------------------------------------------------
@@ -53,7 +54,7 @@ export type AnalyticsData = {
  * Net Profit = Gross Revenue − Parts COGS − Card Fees
  */
 export async function fetchAnalytics(): Promise<
-  { data: AnalyticsData } | { error: string }
+  { data: AnalyticsData } | { data: null; error: string }
 > {
   const tenantId = process.env.DEMO_TENANT_ID;
 
@@ -164,8 +165,11 @@ export async function fetchAnalytics(): Promise<
       },
     };
   } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      return { data: null, error: "Database synchronization pending or unreachable." };
+    }
     const message =
       err instanceof Error ? err.message : "Failed to load analytics.";
-    return { error: message };
+    return { data: null, error: message };
   }
 }

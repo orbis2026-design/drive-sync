@@ -346,6 +346,7 @@ export interface SearchPartsOptions {
   vehicleYear?: number;
   vehicleMake?: string;
   vehicleModel?: string;
+  vin?: string;
 }
 
 export async function searchParts(

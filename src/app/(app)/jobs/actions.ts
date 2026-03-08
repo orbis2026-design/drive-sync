@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
 
 // ---------------------------------------------------------------------------
@@ -52,7 +53,7 @@ export type JobCard = {
  * the authenticated session's tenantId in production.
  */
 export async function fetchActiveJobs(): Promise<
-  { data: JobCard[] } | { error: string }
+  { data: JobCard[] } | { data: null; error: string }
 > {
   const tenantId = process.env.DEMO_TENANT_ID;
 
@@ -106,7 +107,10 @@ export async function fetchActiveJobs(): Promise<
 
     return { data: jobs };
   } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      return { data: null, error: "Database synchronization pending or unreachable." };
+    }
     const message = err instanceof Error ? err.message : "Failed to load jobs.";
-    return { error: message };
+    return { data: null, error: message };
   }
 }

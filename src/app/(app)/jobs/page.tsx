@@ -16,7 +16,7 @@ export default async function JobsPage() {
   const result = await fetchActiveJobs();
 
   // Graceful degradation: if the DB is unavailable, render an empty board.
-  const jobs = "data" in result ? result.data : [];
+  const jobs = "data" in result && result.data != null ? result.data : [];
 
   return (
     <div className="flex flex-col min-h-full">
