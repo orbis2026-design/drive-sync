@@ -6,7 +6,7 @@
  * entirely (saves memory & egress bandwidth).
  *
  * Request body (JSON):
- *   { fileName: string; contentType: string; workOrderId: string }
+ *   { fileName: string; contentType: string; workOrderId?: string; context?: string }
  *
  * Response (JSON):
  *   { uploadUrl: string; publicUrl: string; key: string }
@@ -45,21 +45,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       contentType?: unknown;
       workOrderId?: unknown;
       contentLength?: unknown;
+      context?: unknown;
     };
 
-    const { fileName, contentType, workOrderId, contentLength } = body;
+    const { fileName, contentType, workOrderId, contentLength, context } = body;
 
     // ── Input validation ───────────────────────────────────────────────────
+    const hasWorkOrder = typeof workOrderId === "string" && workOrderId.trim();
+    const hasContext = typeof context === "string" && context.trim();
+
     if (
       typeof fileName !== "string" ||
       !fileName.trim() ||
       typeof contentType !== "string" ||
       !contentType.trim() ||
-      typeof workOrderId !== "string" ||
-      !workOrderId.trim()
+      (!hasWorkOrder && !hasContext)
     ) {
+      console.warn("[api/upload] Validation failed: fileName, contentType, and either workOrderId or context are required.", { fileName, contentType, workOrderId, context });
       return NextResponse.json(
-        { error: "fileName, contentType, and workOrderId are required." },
+        { error: "fileName, contentType, and either workOrderId or context are required." },
         { status: 400 }
       );
     }
@@ -92,7 +96,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // ── Build object key ───────────────────────────────────────────────────
     // Sanitise the original file name: keep only safe characters.
     const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const key = `walkaround/${workOrderId}/${Date.now()}-${safeName}`;
+    let key: string;
+    if (hasWorkOrder) {
+      key = `walkaround/${workOrderId}/${Date.now()}-${safeName}`;
+    } else if (context === "logo") {
+      key = `logos/${Date.now()}-${safeName}`;
+    } else {
+      console.warn("[api/upload] Validation failed: unsupported context value.", { context });
+      return NextResponse.json(
+        { error: `Unsupported context value. Only "logo" is currently supported.` },
+        { status: 400 }
+      );
+    }
 
     // ── Generate pre-signed PUT URL ────────────────────────────────────────
     const command = new PutObjectCommand({
