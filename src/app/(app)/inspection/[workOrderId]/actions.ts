@@ -94,3 +94,39 @@ export async function saveVoiceNote(
 
   return {};
 }
+
+// ---------------------------------------------------------------------------
+// Types — Checklist (Issue #86)
+// ---------------------------------------------------------------------------
+
+export interface ChecklistItemData {
+  id: string;
+  category: string;
+  label: string;
+  status: "PASS" | "CAUTION" | "FAIL" | null;
+  note: string;
+  photoUrl: string;
+}
+
+// ---------------------------------------------------------------------------
+// Server Action — saveChecklist
+// Persists the 40-point inspection checklist to work_orders.checklists_json.
+// ---------------------------------------------------------------------------
+
+export async function saveChecklist(
+  workOrderId: string,
+  items: ChecklistItemData[],
+): Promise<ActionResult> {
+  if (!workOrderId) {
+    return { error: "Cannot save checklist: work order ID is missing." };
+  }
+  const adminDb = createAdminClient();
+  const { error } = await adminDb
+    .from("work_orders")
+    .update({ checklists_json: items })
+    .eq("id", workOrderId);
+  if (error) {
+    return { error: `Failed to save checklist: ${error.message}` };
+  }
+  return {};
+}
