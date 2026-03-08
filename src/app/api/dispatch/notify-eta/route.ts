@@ -16,6 +16,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+// ---------------------------------------------------------------------------
+// Types — Supabase joined query result shapes
+// ---------------------------------------------------------------------------
+
+interface WorkOrderClientRow {
+  first_name: string;
+  last_name: string;
+  phone?: string;
+}
+
+interface WorkOrderVehicleRow {
+  make: string;
+  model: string;
+  year: number;
+}
+
+interface WorkOrderWithRelations {
+  id: string;
+  title: string;
+  scheduled_at: string | null;
+  client: WorkOrderClientRow | WorkOrderClientRow[] | null;
+  vehicle: WorkOrderVehicleRow | WorkOrderVehicleRow[] | null;
+}
+
 export async function POST(req: NextRequest) {
   let body: { workOrderId?: string };
   try {
@@ -52,17 +76,29 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const woTyped = wo as unknown as WorkOrderWithRelations;
+
   // Build a human-readable ETA string
-  const scheduledAt = wo.scheduled_at
-    ? new Date(wo.scheduled_at as string).toLocaleTimeString("en-US", {
+  const scheduledAt = woTyped.scheduled_at
+    ? new Date(woTyped.scheduled_at).toLocaleTimeString("en-US", {
         hour: "numeric",
         minute: "2-digit",
         timeZoneName: "short",
       })
     : "soon";
 
-  const client = (wo.client as unknown) as { first_name: string; last_name: string; phone?: string } | null;
-  const vehicle = (wo.vehicle as unknown) as { make: string; model: string; year: number } | null;
+  // Supabase returns a single-row join as an array when using !inner syntax;
+  // normalise to a single object regardless.
+  const rawClient = woTyped.client;
+  const client: WorkOrderClientRow | null = Array.isArray(rawClient)
+    ? (rawClient[0] ?? null)
+    : rawClient;
+
+  const rawVehicle = woTyped.vehicle;
+  const vehicle: WorkOrderVehicleRow | null = Array.isArray(rawVehicle)
+    ? (rawVehicle[0] ?? null)
+    : rawVehicle;
+
   const clientPhone = client?.phone;
 
   if (!clientPhone) {

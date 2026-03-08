@@ -20,6 +20,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateWeeklyProjection } from "@/lib/ai-projections";
 
+// Sentinel UUID used as the user_id for AI-generated messages.
+// This UUID will never match a real auth.users row; it identifies the system.
+const SYSTEM_AI_USER_ID = "00000000-0000-0000-0000-000000000000";
+
 // ---------------------------------------------------------------------------
 // Security — Bearer token guard
 // ---------------------------------------------------------------------------
@@ -64,7 +68,7 @@ export async function GET(req: NextRequest) {
   const admin = createAdminClient();
   const { error: insertErr } = await admin.from("shop_messages").insert({
     tenant_id: tenantId,
-    user_id: "00000000-0000-0000-0000-000000000000", // system/AI user sentinel
+    user_id: SYSTEM_AI_USER_ID,
     channel: "#insights",
     body: message,
     is_ai: true,
