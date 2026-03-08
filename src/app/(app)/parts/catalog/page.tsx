@@ -4,7 +4,9 @@ import { useState, useTransition } from "react";
 import {
   checkLiveInventory,
   executePurchaseOrder,
+  fetchActiveWorkOrders,
   getPartsForCategory,
+  type ActiveWorkOrderSummary,
 } from "./actions";
 import type { SupplierPart } from "@/lib/supplier-api";
 
@@ -57,6 +59,7 @@ interface SelectedVehicle {
   year: number;
   make: string;
   model: string;
+  vin?: string;
 }
 
 interface CartItem extends Omit<SupplierPart, "inStock"> {
@@ -141,6 +144,12 @@ export default function PartsCatalogClient() {
   // -- Cart --
   const [cart, setCart] = useState<CartItem[]>([]);
 
+  // -- "Pull from Active Job" modal state (Issue #108) --
+  const [showJobPicker, setShowJobPicker] = useState(false);
+  const [activeJobs, setActiveJobs] = useState<ActiveWorkOrderSummary[]>([]);
+  const [jobPickerLoading, setJobPickerLoading] = useState(false);
+  const [jobPickerError, setJobPickerError] = useState<string | null>(null);
+
   // -- UI state --
   const [toast, setToast] = useState<string | null>(null);
   const [poResult, setPoResult] = useState<{
@@ -160,6 +169,37 @@ export default function PartsCatalogClient() {
     setTimeout(() => setToast(null), 3000);
   }
 
+  /** Opens the "Pull from Active Job" panel and loads active work orders. */
+  async function handleOpenJobPicker() {
+    setShowJobPicker(true);
+    setJobPickerError(null);
+    setJobPickerLoading(true);
+    const res = await fetchActiveWorkOrders();
+    setJobPickerLoading(false);
+    if ("error" in res) {
+      setJobPickerError(res.error);
+    } else {
+      setActiveJobs(res.data);
+    }
+  }
+
+  /** Auto-fills the vehicle form fields from the selected work order. */
+  function handleSelectJob(job: ActiveWorkOrderSummary) {
+    setVehicle({
+      year: job.vehicle.year,
+      make: job.vehicle.make,
+      model: job.vehicle.model,
+      vin: job.vehicle.vin ?? undefined,
+    });
+    setParts([]);
+    setSelectedCategory(null);
+    setSelectedSub(null);
+    setShowJobPicker(false);
+    showToast(
+      `Filled from: ${job.vehicle.year} ${job.vehicle.make} ${job.vehicle.model}`,
+    );
+  }
+
   async function handleSelectSub(category: string, sub: string) {
     setSelectedCategory(category);
     setSelectedSub(sub);
@@ -171,6 +211,7 @@ export default function PartsCatalogClient() {
       vehicle.year,
       vehicle.make,
       vehicle.model,
+      vehicle.vin,
     );
     setPartsLoading(false);
     if ("error" in res) {
@@ -259,6 +300,75 @@ export default function PartsCatalogClient() {
         </div>
       )}
 
+      {/* ── "Pull from Active Job" slide-out modal (Issue #108) ── */}
+      {showJobPicker && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center"
+          onClick={() => setShowJobPicker(false)}
+        >
+          <div
+            className="w-full max-w-md bg-gray-900 border border-gray-700 rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl max-h-[75vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-base text-white">
+                Active Work Orders
+              </h2>
+              <button
+                onClick={() => setShowJobPicker(false)}
+                className="text-gray-500 hover:text-white text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            {jobPickerLoading && (
+              <div className="flex items-center gap-2 text-gray-400 text-sm py-4">
+                <span className="animate-spin inline-block w-4 h-4 border-2 border-gray-600 border-t-brand-400 rounded-full" />
+                Loading active jobs…
+              </div>
+            )}
+
+            {jobPickerError && (
+              <p className="text-red-400 text-sm">{jobPickerError}</p>
+            )}
+
+            {!jobPickerLoading && !jobPickerError && activeJobs.length === 0 && (
+              <p className="text-gray-500 text-sm py-4 text-center">
+                No active work orders found.
+              </p>
+            )}
+
+            {!jobPickerLoading && !jobPickerError && activeJobs.length > 0 && (
+              <ul className="overflow-y-auto space-y-2">
+                {activeJobs.map((job) => (
+                  <li key={job.id}>
+                    <button
+                      onClick={() => handleSelectJob(job)}
+                      className="w-full text-left bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-brand-400/50 rounded-xl p-3 transition-colors"
+                    >
+                      <p className="font-semibold text-sm text-white truncate">
+                        {job.title}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {job.vehicle.year} {job.vehicle.make}{" "}
+                        {job.vehicle.model}
+                        {job.vehicle.vin
+                          ? ` · VIN ${job.vehicle.vin}`
+                          : ""}
+                      </p>
+                      <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded border border-gray-600 text-gray-500 uppercase tracking-wide">
+                        {job.status}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* PO Success overlay */}
       {poResult && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6">
@@ -299,6 +409,14 @@ export default function PartsCatalogClient() {
             done={vehicleComplete}
           />
 
+          {/* Pull from Active Job button (Issue #108) */}
+          <button
+            onClick={handleOpenJobPicker}
+            className="w-full mb-4 flex items-center justify-center gap-2 bg-brand-400/10 hover:bg-brand-400/20 border border-brand-400/40 text-brand-400 font-semibold text-sm py-2.5 rounded-xl transition-colors"
+          >
+            <span>⚡</span> Pull from Active Job
+          </button>
+
           <div className="grid grid-cols-3 gap-3">
             {/* Year */}
             <div>
@@ -322,38 +440,34 @@ export default function PartsCatalogClient() {
               </select>
             </div>
 
-            {/* Make */}
+            {/* Make — text input (Issue #107) */}
             <div>
               <label className="block text-xs text-gray-500 mb-1">Make</label>
-              <select
+              <input
+                type="text"
                 value={vehicle.make ?? ""}
                 onChange={(e) => {
                   setVehicle((prev) => ({
-                    year: prev.year,
+                    ...prev,
                     make: e.target.value,
+                    model: undefined,
                   }));
                   setParts([]);
                   setSelectedCategory(null);
                   setSelectedSub(null);
                 }}
-                disabled={!vehicle.year}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-brand-400 disabled:opacity-40"
-              >
-                <option value="">Make</option>
-                {VEHICLE_MAKES.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+                placeholder="e.g. Toyota"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-400"
+              />
             </div>
 
-            {/* Model */}
+            {/* Model — text input (Issue #107) */}
             <div>
               <label className="block text-xs text-gray-500 mb-1">
                 Model
               </label>
-              <select
+              <input
+                type="text"
                 value={vehicle.model ?? ""}
                 onChange={(e) => {
                   setVehicle((prev) => ({ ...prev, model: e.target.value }));
@@ -361,22 +475,36 @@ export default function PartsCatalogClient() {
                   setSelectedCategory(null);
                   setSelectedSub(null);
                 }}
-                disabled={!vehicle.make}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-brand-400 disabled:opacity-40"
-              >
-                <option value="">Model</option>
-                {(VEHICLE_MODELS[vehicle.make ?? ""] ?? []).map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+                placeholder="e.g. Camry"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-400"
+              />
             </div>
+          </div>
+
+          {/* VIN — optional text input (Issue #107) */}
+          <div className="mt-3">
+            <label className="block text-xs text-gray-500 mb-1">
+              VIN <span className="text-gray-600">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={vehicle.vin ?? ""}
+              onChange={(e) =>
+                setVehicle((prev) => ({
+                  ...prev,
+                  vin: e.target.value.trim() || undefined,
+                }))
+              }
+              maxLength={17}
+              placeholder="17-character VIN for exact fitment"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-400 font-mono uppercase"
+            />
           </div>
 
           {vehicleComplete && (
             <p className="mt-3 text-xs text-brand-400 font-medium">
-              {vehicle.year} {vehicle.make} {vehicle.model} — fitment confirmed
+              {vehicle.year} {vehicle.make} {vehicle.model}
+              {vehicle.vin ? ` · VIN ${vehicle.vin}` : ""} — fitment confirmed
             </p>
           )}
         </div>

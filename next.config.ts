@@ -20,6 +20,15 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      {
+        source: "/scan",
+        destination: "/intake",
+        permanent: true,
+      },
+    ];
+  },
   // Silence the Turbopack/webpack conflict from the PWA plugin.
   // Next.js 16 defaults to Turbopack; setting an empty turbopack config
   // acknowledges this and prevents the build error. The `root` is set
