@@ -20,7 +20,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { partsBridge, SupplierCredentials } from "@/lib/adapters/parts-bridge";
+import {
+  partsBridge,
+  PartsBridgeError,
+  SupplierCredentials,
+} from "@/lib/adapters/parts-bridge";
 
 /** Minimum VIN length accepted (full VINs are 17 chars; allow shorter for dev). */
 const MIN_VIN_LENGTH = 5;
@@ -78,29 +82,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    // Supplier credentials are stored under the `supplier_credentials` key
-    // inside the `features_json` JSONB column.
+    // Supplier credentials may be stored in a dedicated `supplier_credentials_json`
+    // column (Phase 27) or inside `features_json.supplier_credentials` (legacy).
     const featuresJson = tenant.features_json as Record<string, unknown> | null;
-    const supplierCreds = featuresJson?.supplier_credentials as
-      | Partial<SupplierCredentials>
-      | undefined;
+    const rawCreds =
+      (tenant as Record<string, unknown>).supplier_credentials_json as
+        | Partial<SupplierCredentials>
+        | undefined
+      ?? featuresJson?.supplier_credentials as
+        | Partial<SupplierCredentials>
+        | undefined;
 
-    if (
-      supplierCreds?.baseUrl &&
-      supplierCreds.clientId &&
-      supplierCreds.clientSecret &&
-      supplierCreds.apiKey
-    ) {
-      credentials = supplierCreds as SupplierCredentials;
+    // Accept WHI-style (username/password/token) or OAuth-style credentials.
+    const hasWhi = rawCreds?.baseUrl && (rawCreds.username || rawCreds.token);
+    const hasOauth = rawCreds?.baseUrl && rawCreds.clientId && rawCreds.clientSecret;
+
+    if (hasWhi || hasOauth) {
+      credentials = rawCreds as SupplierCredentials;
     } else {
       // Fall back to environment-level demo credentials for development.
       const baseUrl = process.env.SUPPLIER_API_BASE_URL;
+      const username = process.env.SUPPLIER_USERNAME;
+      const password = process.env.SUPPLIER_PASSWORD;
+      const token = process.env.SUPPLIER_TOKEN;
       const clientId = process.env.SUPPLIER_CLIENT_ID;
       const clientSecret = process.env.SUPPLIER_CLIENT_SECRET;
       const apiKey = process.env.SUPPLIER_API_KEY;
 
-      if (baseUrl && clientId && clientSecret && apiKey) {
-        credentials = { baseUrl, clientId, clientSecret, apiKey };
+      if (baseUrl && (username || token || (clientId && clientSecret))) {
+        credentials = { baseUrl, username, password, token, clientId, clientSecret, apiKey };
       }
     }
   } catch (err) {
@@ -129,6 +139,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ results });
   } catch (err) {
+    if (err instanceof PartsBridgeError) {
+      if (err.type === "UNAUTHORIZED") {
+        return NextResponse.json({ error: err.message }, { status: 401 });
+      }
+      if (err.type === "NOT_FOUND") {
+        return NextResponse.json({ error: err.message, results: [] }, { status: 404 });
+      }
+    }
     const message = err instanceof Error ? err.message : "Parts search failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }

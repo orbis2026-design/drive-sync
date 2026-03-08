@@ -63,7 +63,7 @@ export async function fetchQueuedMessages(): Promise<
       },
     });
 
-    const data: QueuedMessage[] = rows.map((r) => ({
+    const data: QueuedMessage[] = rows.map((r: (typeof rows)[number]) => ({
       id: r.id,
       phoneNumber: r.phoneNumber,
       message: r.message,
@@ -171,13 +171,13 @@ export async function sendBlastCampaign(
         select: { clientId: true },
         distinct: ["clientId"],
       });
-      const recentIds = new Set(recentClients.map((r) => r.clientId));
+      const recentIds = new Set(recentClients.map((r: (typeof recentClients)[number]) => r.clientId));
 
       const all = await prisma.client.findMany({
         where: tenantId ? { tenantId } : {},
         select: { id: true },
       });
-      clientIds = all.map((c) => c.id).filter((id) => !recentIds.has(id));
+      clientIds = all.map((c: (typeof all)[number]) => c.id).filter((id: string) => !recentIds.has(id));
     } else if (audience === "OIL_DUE") {
       // Clients whose last work order was > 5 000 miles / 6 months ago (approx)
       cutoff.setMonth(cutoff.getMonth() - 6);
@@ -189,14 +189,14 @@ export async function sendBlastCampaign(
         select: { clientId: true },
         distinct: ["clientId"],
       });
-      clientIds = old.map((r) => r.clientId);
+      clientIds = old.map((r: (typeof old)[number]) => r.clientId);
     } else {
       // ALL
       const all = await prisma.client.findMany({
         where: tenantId ? { tenantId } : {},
         select: { id: true },
       });
-      clientIds = all.map((c) => c.id);
+      clientIds = all.map((c: (typeof all)[number]) => c.id);
     }
 
     if (clientIds.length === 0) {
@@ -214,7 +214,7 @@ export async function sendBlastCampaign(
     if (!firstTenantId) return { error: "Tenant not configured." };
 
     await Promise.all(
-      clients.map(async (c) => {
+      clients.map(async (c: (typeof clients)[number]) => {
         await simulateSendSMS(c.phone, message);
         await prisma.outboundCampaign.create({
           data: {

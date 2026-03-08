@@ -40,7 +40,7 @@ const fetchClients = unstable_cache(
         lastName: client.lastName,
         email: client.email,
         phone: client.phone,
-        vehicles: client.vehicles.map((v): VehicleData => {
+        vehicles: client.vehicles.map((v: (typeof client.vehicles)[number]): VehicleData => {
           // Pre-compute maintenance badges server-side so the initial render is
           // fully populated — no extra client round-trip on first expand.
           const schedule =
