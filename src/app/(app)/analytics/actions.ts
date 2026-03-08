@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -56,7 +57,8 @@ export type AnalyticsData = {
 export async function fetchAnalytics(): Promise<
   { data: AnalyticsData } | { data: null; error: string }
 > {
-  const tenantId = process.env.DEMO_TENANT_ID;
+  const tenantId = await getTenantId();
+  if (!tenantId) return { data: null, error: "Authentication required." };
 
   try {
     // --- MTD window ---
@@ -65,7 +67,7 @@ export async function fetchAnalytics(): Promise<
 
     const paidMTD = await prisma.workOrder.findMany({
       where: {
-        ...(tenantId ? { tenantId } : {}),
+        tenantId,
         status: "PAID",
         closedAt: { gte: startOfMonth },
       },
@@ -106,7 +108,7 @@ export async function fetchAnalytics(): Promise<
 
     const paidWeekly = await prisma.workOrder.findMany({
       where: {
-        ...(tenantId ? { tenantId } : {}),
+        tenantId,
         status: "PAID",
         closedAt: { gte: eightWeeksAgo },
       },

@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,7 +48,8 @@ export type CalendarData = {
 export async function fetchCalendarData(
   centerDate?: string,
 ): Promise<{ data: CalendarData } | { error: string }> {
-  const tenantId = process.env.DEMO_TENANT_ID;
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
 
   try {
     const center = centerDate ? new Date(centerDate) : new Date();
@@ -61,7 +63,7 @@ export async function fetchCalendarData(
     const [scheduledRaw, backlogRaw] = await Promise.all([
       prisma.workOrder.findMany({
         where: {
-          ...(tenantId ? { tenantId } : {}),
+          tenantId,
           scheduledAt: { gte: rangeStart, lte: rangeEnd },
         },
         select: {
@@ -76,7 +78,7 @@ export async function fetchCalendarData(
       }),
       prisma.workOrder.findMany({
         where: {
-          ...(tenantId ? { tenantId } : {}),
+          tenantId,
           scheduledAt: null,
           status: { in: ["ACTIVE", "INTAKE", "REQUESTED"] },
         },
@@ -217,7 +219,7 @@ export async function cancelWorkOrder(
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = process.env.DEMO_TENANT_ID;
+  const tenantId = await getTenantId();
 
   try {
     // 1. Cancel the target work order and clear its slot
@@ -233,7 +235,7 @@ export async function cancelWorkOrder(
     const effectiveTenantId = tenantId ?? cancelled.tenantId;
     const nextRaw = await prisma.workOrder.findFirst({
       where: {
-        ...(effectiveTenantId ? { tenantId: effectiveTenantId } : {}),
+        tenantId: effectiveTenantId,
         scheduledAt: { gte: new Date() },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         status: { notIn: ["CANCELLED", "COMPLETE", "INVOICED", "PAID"] as any[] },

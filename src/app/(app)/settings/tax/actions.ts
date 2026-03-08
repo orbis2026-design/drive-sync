@@ -19,10 +19,7 @@ export async function saveTaxMatrix(
   }
 
   const roleRow = await getUserRole(userId);
-  // Fall back to the demo tenant ID only in development environments where
-  // user_roles may not be populated yet.  In production, every user must
-  // have a role row with a tenantId assigned.
-  const tenantId = roleRow?.tenantId ?? process.env.DEMO_TENANT_ID;
+  const tenantId = roleRow?.tenantId;
   if (!tenantId) {
     return { error: "Tenant not configured." };
   }
@@ -56,7 +53,7 @@ export async function saveTaxSettings(params: {
   }
 
   const roleRow = await getUserRole(userId);
-  const tenantId = roleRow?.tenantId ?? process.env.DEMO_TENANT_ID;
+  const tenantId = roleRow?.tenantId;
   if (!tenantId) {
     return { error: "Tenant not configured." };
   }

@@ -2,6 +2,7 @@
 
 import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Stripe client (lazy-initialised, server-only)
@@ -39,15 +40,24 @@ export interface SubscriptionDetails {
 // getSubscriptionDetails — fetch current billing state for the tenant
 // ---------------------------------------------------------------------------
 
-const DEMO_TENANT_ID = process.env.DEMO_TENANT_ID ?? "";
-
 export async function getSubscriptionDetails(): Promise<SubscriptionDetails> {
+  const tenantId = await getTenantId();
+  if (!tenantId) {
+    return {
+      subscriptionStatus: "NONE",
+      stripeCustomerId: null,
+      currentPeriodEnd: null,
+      paymentMethodLast4: null,
+      invoices: [],
+    };
+  }
+
   const admin = createAdminClient();
 
   const { data: tenant } = await admin
     .from("tenants")
     .select("stripe_customer_id, subscription_status")
-    .eq("id", DEMO_TENANT_ID)
+    .eq("id", tenantId)
     .single();
 
   if (!tenant?.stripe_customer_id) {
@@ -144,11 +154,13 @@ export async function createBillingPortalSession(
   returnUrl: string,
 ): Promise<{ url: string } | { error: string }> {
   const admin = createAdminClient();
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
 
   const { data: tenant } = await admin
     .from("tenants")
     .select("stripe_customer_id")
-    .eq("id", DEMO_TENANT_ID)
+    .eq("id", tenantId)
     .single();
 
   // If no Stripe customer exists yet, create a Checkout session instead
@@ -167,7 +179,7 @@ export async function createBillingPortalSession(
         line_items: [{ price: priceId, quantity: 1 }],
         success_url: `${returnUrl}?checkout=success`,
         cancel_url: `${returnUrl}?checkout=canceled`,
-        metadata: { tenantId: DEMO_TENANT_ID },
+        metadata: { tenantId },
       });
       return { url: session.url! };
     } catch (err) {
