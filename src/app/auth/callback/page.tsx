@@ -22,28 +22,14 @@
  */
 
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { getBrowserClient } from "@/lib/supabase/browser";
 
 // ---------------------------------------------------------------------------
-// Supabase browser client — same options as auth-helpers.ts & register/page.tsx
+// getBrowserClient() uses @supabase/ssr's createBrowserClient, which
+// automatically detects and exchanges session tokens from the URL hash
+// (#access_token=…&refresh_token=…) and persists them as cookies so the
+// server can read the session on subsequent requests.
 // ---------------------------------------------------------------------------
-
-function getSupabaseClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      auth: {
-        persistSession: true,
-        storageKey: "drive-sync-auth",
-        autoRefreshToken: true,
-        // Critical: tells the client to read and exchange the tokens in the
-        // URL hash (#access_token=…&refresh_token=…) automatically.
-        detectSessionInUrl: true,
-      },
-    },
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -56,7 +42,7 @@ export default function AuthCallbackPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const supabase = getSupabaseClient();
+    const supabase = getBrowserClient();
     let redirected = false;
 
     function navigateToApp() {
