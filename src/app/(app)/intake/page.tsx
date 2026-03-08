@@ -18,6 +18,9 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Standard VIN pattern: 17 chars, no I/O/Q per ISO 3779. */
+const VIN_REGEX = /^[A-HJ-NPR-Z0-9]{17}$/i;
+
 function isError(
   result: DecodeVinResult | DecodeVinError | null,
 ): result is DecodeVinError {
@@ -129,7 +132,7 @@ function ScanButton({ onVinDetected, disabled }: ScanButtonProps) {
         }
 
         const vin = data.vin ?? (data.type === "VIN" ? data.value : undefined);
-        if (vin && /^[A-HJ-NPR-Z0-9]{17}$/i.test(vin)) {
+        if (vin && VIN_REGEX.test(vin)) {
           onVinDetected(vin.toUpperCase());
           setScanError(null);
         } else {
