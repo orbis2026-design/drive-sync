@@ -104,7 +104,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     } else {
       console.warn("[api/upload] Validation failed: unsupported context value.", { context });
       return NextResponse.json(
-        { error: "fileName, contentType, and either workOrderId or context are required." },
+        { error: `Unsupported context value. Only "logo" is currently supported.` },
         { status: 400 }
       );
     }

@@ -23,7 +23,7 @@ export async function applyPromoCode(
       .maybeSingle();
 
     const featuresJson = {
-      ...(existingTenant?.features_json as Record<string, unknown> | null ?? {}),
+      ...((existingTenant?.features_json as Record<string, unknown> | null) ?? {}),
       tier: "MULTI_VAN",
     };
 
@@ -65,7 +65,7 @@ export async function applyPromoCode(
     .maybeSingle();
 
   const featuresJson = {
-    ...(existingTenant?.features_json as Record<string, unknown> | null ?? {}),
+    ...((existingTenant?.features_json as Record<string, unknown> | null) ?? {}),
     tier: promo.applicable_tier ?? selectedTier,
   };
 
