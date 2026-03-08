@@ -56,7 +56,7 @@ function VinInput({ value, onChange, disabled }: VinInputProps) {
       maxLength={17}
       placeholder="1HGBH41JXMN109186"
       value={value}
-      onChange={(e) => onChange(e.target.value.toUpperCase())}
+      onChange={(e) => onChange(e.target.value.replace(/[^A-HJ-NPR-Z0-9]/g, "").toUpperCase())}
       disabled={disabled}
       aria-label="Vehicle Identification Number (VIN)"
       className={[
@@ -848,6 +848,19 @@ export default function IntakePage() {
         <input type="hidden" name="vin" value={vin} />
 
         <VinInput value={vin} onChange={setVin} disabled={pending} />
+
+        <div className="flex items-center justify-between px-1">
+          <p className="text-xs text-gray-500">
+            {vin.length === 17 ? (
+              <span className="text-brand-400 font-semibold">✓ Valid VIN length</span>
+            ) : (
+              `${vin.length}/17 characters`
+            )}
+          </p>
+          {vin.length > 0 && vin.length < 17 && (
+            <p className="text-xs text-gray-600">{17 - vin.length} remaining</p>
+          )}
+        </div>
 
         <ScanButton onVinDetected={setVin} disabled={pending} />
 
