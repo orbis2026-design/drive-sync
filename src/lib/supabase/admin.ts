@@ -8,6 +8,19 @@ import { createClient } from "@supabase/supabase-js";
  *   NEXT_PUBLIC_SUPABASE_URL
  *   SUPABASE_SERVICE_ROLE_KEY   ← keep this server-only; never expose to the browser
  */
+
+/** Fetch wrapper that aborts requests after 8 seconds to prevent indefinite hangs. */
+function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 8_000);
+  return fetch(input, { ...init, signal: controller.signal }).finally(() =>
+    clearTimeout(id),
+  );
+}
+
 export function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -20,5 +33,6 @@ export function createAdminClient() {
 
   return createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: fetchWithTimeout },
   });
 }

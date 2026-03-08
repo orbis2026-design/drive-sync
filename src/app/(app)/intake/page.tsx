@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useRef, useState, useCallback } from "react";
 import {
   decodeVin,
   createTenantVehicle,
@@ -77,6 +77,165 @@ function VinInput({ value, onChange, disabled }: VinInputProps) {
         "transition-all duration-200",
       ].join(" ")}
     />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// VIN Scan Button — camera capture → /api/lexicon/universal-scan
+// ---------------------------------------------------------------------------
+
+interface ScanButtonProps {
+  onVinDetected: (vin: string) => void;
+  disabled?: boolean;
+}
+
+function ScanButton({ onVinDetected, disabled }: ScanButtonProps) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  const handleFile = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      setScanError(null);
+      setScanning(true);
+
+      try {
+        const reader = new FileReader();
+        const base64 = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        const res = await fetch("/api/lexicon/universal-scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: base64 }),
+        });
+
+        const data = (await res.json()) as {
+          type?: string;
+          value?: string;
+          vin?: string;
+          error?: string;
+        };
+
+        if (!res.ok || data.error) {
+          setScanError(data.error ?? "Scan failed. Please try again.");
+          return;
+        }
+
+        const vin = data.vin ?? (data.type === "VIN" ? data.value : undefined);
+        if (vin && /^[A-HJ-NPR-Z0-9]{17}$/i.test(vin)) {
+          onVinDetected(vin.toUpperCase());
+          setScanError(null);
+        } else {
+          setScanError(
+            "No VIN detected. Try a clearer photo or enter it manually.",
+          );
+        }
+      } catch {
+        setScanError("Scan failed. Please try again.");
+      } finally {
+        setScanning(false);
+        // Reset the file input so the same file can be re-selected.
+        if (fileRef.current) fileRef.current.value = "";
+      }
+    },
+    [onVinDetected],
+  );
+
+  return (
+    <div className="space-y-2">
+      {/* Hidden camera input */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        aria-hidden="true"
+        onChange={handleFile}
+      />
+
+      <button
+        type="button"
+        onClick={() => {
+          setScanError(null);
+          fileRef.current?.click();
+        }}
+        disabled={disabled || scanning}
+        aria-label="Scan VIN barcode or license plate with camera"
+        className={[
+          "w-full flex items-center justify-center gap-2",
+          "min-h-[48px] rounded-xl border-2",
+          "border-gray-700 bg-gray-900/50",
+          "text-sm font-semibold text-gray-300",
+          "hover:border-brand-400/60 hover:text-brand-400",
+          "active:scale-[0.98]",
+          "transition-all duration-200",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400",
+          disabled || scanning ? "opacity-50 cursor-not-allowed" : "",
+        ].join(" ")}
+      >
+        {scanning ? (
+          <>
+            <svg
+              className="h-4 w-4 animate-spin"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
+            </svg>
+            Scanning…
+          </>
+        ) : (
+          <>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-4 w-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+              <circle cx="12" cy="13" r="4" />
+            </svg>
+            Scan VIN / Plate
+          </>
+        )}
+      </button>
+
+      {scanError && (
+        <p
+          role="alert"
+          className="text-xs text-danger-400 font-medium text-center px-2"
+        >
+          {scanError}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -686,6 +845,8 @@ export default function IntakePage() {
         <input type="hidden" name="vin" value={vin} />
 
         <VinInput value={vin} onChange={setVin} disabled={pending} />
+
+        <ScanButton onVinDetected={setVin} disabled={pending} />
 
         <DecodeButton disabled={vin.length !== 17} pending={pending} />
 

@@ -440,11 +440,10 @@ export default function PartsCatalogClient() {
               </select>
             </div>
 
-            {/* Make — text input (Issue #107) */}
+            {/* Make */}
             <div>
               <label className="block text-xs text-gray-500 mb-1">Make</label>
-              <input
-                type="text"
+              <select
                 value={vehicle.make ?? ""}
                 onChange={(e) => {
                   setVehicle((prev) => ({
@@ -456,18 +455,23 @@ export default function PartsCatalogClient() {
                   setSelectedCategory(null);
                   setSelectedSub(null);
                 }}
-                placeholder="e.g. Toyota"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-400"
-              />
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-brand-400"
+              >
+                <option value="">Make</option>
+                {VEHICLE_MAKES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {/* Model — text input (Issue #107) */}
+            {/* Model */}
             <div>
               <label className="block text-xs text-gray-500 mb-1">
                 Model
               </label>
-              <input
-                type="text"
+              <select
                 value={vehicle.model ?? ""}
                 onChange={(e) => {
                   setVehicle((prev) => ({ ...prev, model: e.target.value }));
@@ -475,9 +479,18 @@ export default function PartsCatalogClient() {
                   setSelectedCategory(null);
                   setSelectedSub(null);
                 }}
-                placeholder="e.g. Camry"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-400"
-              />
+                disabled={!vehicle.make}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-brand-400 disabled:opacity-50"
+              >
+                <option value="">Model</option>
+                {(vehicle.make ? VEHICLE_MODELS[vehicle.make] ?? [] : []).map(
+                  (m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ),
+                )}
+              </select>
             </div>
           </div>
 
