@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getBrowserClient } from "@/lib/supabase/browser";
 
 /** Idle timeout in milliseconds (15 minutes). */
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
@@ -165,7 +166,21 @@ export default function InactivityLock({
 }) {
   const [locked, setLocked] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
+  const [webAuthnSupported, setWebAuthnSupported] = useState(true);
+  const [sessionEmail, setSessionEmail] = useState("");
+  const [passwordValue, setPasswordValue] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordUnlocking, setPasswordUnlocking] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Detect WebAuthn support and fetch the current user's email on mount.
+  useEffect(() => {
+    setWebAuthnSupported(typeof window !== "undefined" && !!window.PublicKeyCredential);
+    const supabase = getBrowserClient();
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user?.email) setSessionEmail(data.user.email);
+    });
+  }, []);
 
   // Start / reset the idle countdown.
   const resetTimer = useCallback(() => {
@@ -189,7 +204,7 @@ export default function InactivityLock({
         if (timerRef.current) clearTimeout(timerRef.current);
         setLocked(true);
       } else {
-        // Returning to foreground — keep locked; user must biometrically unlock.
+        // Returning to foreground — keep locked; user must unlock.
       }
     };
 
@@ -219,6 +234,32 @@ export default function InactivityLock({
       setUnlocking(false);
     }
   }, [unlocking, resetTimer]);
+
+  // Password unlock flow — only verifies the current session user's credentials.
+  const handlePasswordUnlock = useCallback(async () => {
+    if (passwordUnlocking) return;
+    setPasswordError("");
+    setPasswordUnlocking(true);
+    try {
+      const supabase = getBrowserClient();
+      const { error } = await supabase.auth.signInWithPassword({
+        email: sessionEmail,
+        password: passwordValue,
+      });
+      if (error) {
+        setPasswordError(error.message || "Incorrect password.");
+      } else {
+        setLocked(false);
+        setPasswordValue("");
+        setPasswordError("");
+        resetTimer();
+      }
+    } catch {
+      setPasswordError("An unexpected error occurred. Please try again.");
+    } finally {
+      setPasswordUnlocking(false);
+    }
+  }, [passwordUnlocking, sessionEmail, passwordValue, resetTimer]);
 
   return (
     <>
@@ -252,28 +293,87 @@ export default function InactivityLock({
               </p>
             </div>
 
-            {/* Unlock button */}
-            <button
-              onClick={handleUnlock}
-              disabled={unlocking}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {unlocking ? (
-                <>
-                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  Verifying…
-                </>
-              ) : (
-                <>
-                  <span aria-hidden>👆</span>
-                  Tap to Unlock
-                </>
-              )}
-            </button>
+            {/* Biometric unlock button — only shown when WebAuthn is supported */}
+            {webAuthnSupported && (
+              <button
+                onClick={handleUnlock}
+                disabled={unlocking}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {unlocking ? (
+                  <>
+                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    Verifying…
+                  </>
+                ) : (
+                  <>
+                    <span aria-hidden>👆</span>
+                    Tap to Unlock
+                  </>
+                )}
+              </button>
+            )}
 
-            <p className="text-xs text-gray-500">
-              Use Face ID, Touch ID, or your device PIN to unlock.
-            </p>
+            {/* Divider between biometric and password options */}
+            {webAuthnSupported && (
+              <div className="flex w-full items-center gap-3">
+                <div className="h-px flex-1 bg-gray-700" />
+                <span className="text-xs text-gray-500">or</span>
+                <div className="h-px flex-1 bg-gray-700" />
+              </div>
+            )}
+
+            {/* Password unlock section */}
+            <div className="flex w-full flex-col gap-3">
+              <p className="text-center text-xs font-medium text-gray-400">
+                Unlock with Password
+              </p>
+              <label htmlFor="lock-email" className="sr-only">Email</label>
+              <input
+                id="lock-email"
+                type="email"
+                value={sessionEmail}
+                readOnly
+                className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-2.5 text-sm text-gray-400 outline-none cursor-not-allowed"
+                autoComplete="email"
+              />
+              <label htmlFor="lock-password" className="sr-only">Password</label>
+              <input
+                id="lock-password"
+                type="password"
+                placeholder="Password"
+                value={passwordValue}
+                onChange={(e) => setPasswordValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); handlePasswordUnlock(); }
+                }}
+                className="w-full rounded-xl border border-gray-700 bg-gray-900 px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none ring-inset focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                autoComplete="current-password"
+              />
+              {passwordError && (
+                <p className="text-xs text-red-400">{passwordError}</p>
+              )}
+              <button
+                onClick={handlePasswordUnlock}
+                disabled={passwordUnlocking || !sessionEmail || !passwordValue}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-gray-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {passwordUnlocking ? (
+                  <>
+                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    Verifying…
+                  </>
+                ) : (
+                  "Unlock"
+                )}
+              </button>
+            </div>
+
+            {webAuthnSupported && (
+              <p className="text-xs text-gray-500">
+                Use Face ID, Touch ID, or your device PIN to unlock.
+              </p>
+            )}
           </div>
         </div>
       )}

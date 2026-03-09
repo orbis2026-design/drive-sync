@@ -6,8 +6,8 @@ import {
   executePurchaseOrder,
   fetchActiveWorkOrders,
   getPartsForCategory,
-  type ActiveWorkOrderSummary,
 } from "./actions";
+import type { ActiveWorkOrderSummary } from "./schemas";
 import type { SupplierPart } from "@/lib/supplier-api";
 
 // ---------------------------------------------------------------------------
