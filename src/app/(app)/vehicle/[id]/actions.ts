@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getTenantId } from "@/lib/auth";
 import type { QuickSpecsKitItem } from "@/lib/parts-catalog";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +41,9 @@ export async function addQuickSpecsKitToWorkOrder(
     return { error: "Kit is empty." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   const adminDb = createAdminClient();
 
   // Read current parts_json
@@ -47,6 +51,7 @@ export async function addQuickSpecsKitToWorkOrder(
     .from("work_orders")
     .select("parts_json")
     .eq("id", workOrderId)
+    .eq("tenant_id", tenantId)
     .single();
 
   if (readErr) {
@@ -83,7 +88,8 @@ export async function addQuickSpecsKitToWorkOrder(
   const { error: writeErr } = await adminDb
     .from("work_orders")
     .update({ parts_json: merged })
-    .eq("id", workOrderId);
+    .eq("id", workOrderId)
+    .eq("tenant_id", tenantId);
 
   if (writeErr) {
     return { error: `Failed to save parts: ${writeErr.message}` };

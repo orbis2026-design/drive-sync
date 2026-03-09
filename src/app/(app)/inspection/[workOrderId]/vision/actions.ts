@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getTenantId } from "@/lib/auth";
 import type { RepairStep } from "./page";
 
 /**
@@ -17,6 +18,9 @@ export async function appendStepsToWorkOrder(
     return { error: "No repair steps to append." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   const supabase = createAdminClient();
 
   const { error } = await supabase
@@ -24,7 +28,8 @@ export async function appendStepsToWorkOrder(
     .update({
       voice_note_json: { repairSteps },
     })
-    .eq("id", workOrderId);
+    .eq("id", workOrderId)
+    .eq("tenant_id", tenantId);
 
   if (error) return { error: error.message };
   return { success: true };

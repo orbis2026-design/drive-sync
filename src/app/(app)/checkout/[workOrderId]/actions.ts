@@ -57,6 +57,9 @@ export async function getCheckoutData(
     return { error: "Missing work order ID." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   let workOrder: {
     id: string;
     title: string;
@@ -71,8 +74,8 @@ export async function getCheckoutData(
   } | null = null;
 
   try {
-    workOrder = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
+    workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
       select: {
         id: true,
         title: true,
@@ -163,12 +166,15 @@ export async function processPayment(
     return { error: "Missing work order ID." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   // --- Fetch work order to validate state ----------------------------------
   let workOrder: { id: string; status: string } | null = null;
 
   try {
-    workOrder = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
+    workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
       select: { id: true, status: true },
     });
   } catch (err) {
@@ -197,8 +203,8 @@ export async function processPayment(
 
   // --- Persist via Prisma --------------------------------------------------
   try {
-    await prisma.workOrder.update({
-      where: { id: workOrderId },
+    await prisma.workOrder.updateMany({
+      where: { id: workOrderId, tenantId },
       data: {
         status: "PAID",
         closedAt,
@@ -220,7 +226,8 @@ export async function processPayment(
         closed_at: closedAt.toISOString(),
         payment_method: storedMethod,
       })
-      .eq("id", workOrderId);
+      .eq("id", workOrderId)
+      .eq("tenant_id", tenantId);
   } catch {
     // Non-fatal — Prisma write succeeded.
   }
@@ -229,37 +236,34 @@ export async function processPayment(
   // When a job is closed, query the vehicle's oilType to find the matching
   // consumable and deduct the oil capacity (defaulting to 5 quarts if unknown).
   try {
-    const tenantId = await getTenantId();
-    if (tenantId) {
-      const wo = await prisma.workOrder.findUnique({
-        where: { id: workOrderId },
-        select: {
-          vehicle: { select: { oilType: true } },
+    const wo = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
+      select: {
+        vehicle: { select: { oilType: true } },
+      },
+    });
+
+    const oilType = wo?.vehicle?.oilType ?? null;
+
+    if (oilType) {
+      // Find the matching consumable row by name similarity (case-insensitive prefix match)
+      const consumable = await prisma.consumable.findFirst({
+        where: {
+          tenantId,
+          name: { contains: oilType.split(" ")[0], mode: "insensitive" },
         },
+        select: { id: true, currentStock: true },
       });
 
-      const oilType = wo?.vehicle?.oilType ?? null;
-
-      if (oilType) {
-        // Find the matching consumable row by name similarity (case-insensitive prefix match)
-        const consumable = await prisma.consumable.findFirst({
-          where: {
-            tenantId,
-            name: { contains: oilType.split(" ")[0], mode: "insensitive" },
-          },
-          select: { id: true, currentStock: true },
+      if (consumable) {
+        const newStock = Math.max(
+          0,
+          consumable.currentStock - DEFAULT_OIL_DEDUCTION_QUARTS,
+        );
+        await prisma.consumable.update({
+          where: { id: consumable.id },
+          data: { currentStock: newStock },
         });
-
-        if (consumable) {
-          const newStock = Math.max(
-            0,
-            consumable.currentStock - DEFAULT_OIL_DEDUCTION_QUARTS,
-          );
-          await prisma.consumable.update({
-            where: { id: consumable.id },
-            data: { currentStock: newStock },
-          });
-        }
       }
     }
   } catch {
