@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { revalidatePath } from "next/cache";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
 import { verifySession } from "@/lib/auth";
 
@@ -156,6 +157,7 @@ export async function advanceWorkOrderStatus(
       data: { status: nextStatus },
     });
 
+    revalidatePath("/jobs");
     return { nextStatus };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to update status.";

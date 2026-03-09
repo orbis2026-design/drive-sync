@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
+import { revalidatePath } from "next/cache";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
 
 // ---------------------------------------------------------------------------
@@ -302,5 +303,6 @@ export async function approveQuote(
     // Non-fatal.
   }
 
+  revalidatePath("/jobs");
   return { success: true };
 }

@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
+import { revalidatePath } from "next/cache";
 import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
@@ -408,5 +409,6 @@ export async function savePartsToWorkOrder(
     return { error: `Failed to save parts: ${error.message}` };
   }
 
+  revalidatePath("/jobs");
   return {};
 }

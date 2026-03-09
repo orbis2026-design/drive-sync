@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { revalidatePath } from "next/cache";
 import { verifySession } from "@/lib/auth";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
@@ -153,6 +154,7 @@ export async function confirmExpense(payload: {
     .single();
 
   if (error) return { error: error.message };
+  revalidatePath("/expenses");
   return { data: data as ExpenseRecord };
 }
 

@@ -3,6 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
 import { sendSMS } from "@/lib/twilio";
+import { revalidatePath } from "next/cache";
 import { verifySession } from "@/lib/auth";
 import { TAX_RATE, DEFAULT_SHOP_RATE_CENTS } from "./constants";
 import { getDueServices, type DueService, formatMilesUntilDue } from "@/lib/predictive-service";
@@ -346,6 +347,7 @@ export async function lockQuote(
     return { error: `Failed to save quote: ${message}` };
   }
 
+  revalidatePath("/jobs");
   return {
     calculation: {
       partsSubtotalCents,
@@ -552,6 +554,7 @@ export async function sendQuote(
     console.error("[sendQuote] SMS delivery failed:", smsResult.error);
   }
 
+  revalidatePath("/jobs");
   return { success: true, portalUrl, smsBody };
 }
 
@@ -695,12 +698,9 @@ export async function submitChangeOrder(
     console.error("[submitChangeOrder] SMS delivery failed:", smsResult.error);
   }
 
+  revalidatePath("/jobs");
   return { success: true, portalUrl };
 }
-
-// ---------------------------------------------------------------------------
-// Server Action — submitSupplementalChangeOrder
-// ---------------------------------------------------------------------------
 
 /**
  * Persists a supplemental ("broken bolt") change order raised mid-repair.
@@ -829,5 +829,6 @@ export async function submitSupplementalChangeOrder(
     );
   }
 
+  revalidatePath("/jobs");
   return { success: true, portalUrl };
 }

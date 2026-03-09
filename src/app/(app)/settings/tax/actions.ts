@@ -7,6 +7,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
+import { revalidatePath, revalidateTag } from "next/cache";
 import type { TaxMatrix } from "@/lib/math-engine";
 import { verifySession } from "@/lib/auth";
 
@@ -25,6 +26,8 @@ export async function saveTaxMatrix(
     return { error: message };
   }
 
+  revalidateTag("tenant-tax", {});
+  revalidatePath("/settings/tax");
   return {};
 }
 
@@ -69,12 +72,10 @@ export async function saveTaxSettings(params: {
     return { error: message };
   }
 
+  revalidateTag("tenant-tax", {});
+  revalidatePath("/settings/tax");
   return {};
 }
-
-// ---------------------------------------------------------------------------
-// lookupTaxByZipCode
-// ---------------------------------------------------------------------------
 
 /**
  * USPS zip-code prefix → US state abbreviation lookup (first 3 digits).

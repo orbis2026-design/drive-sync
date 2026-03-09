@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { revalidatePath } from "next/cache";
 import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
@@ -369,6 +370,7 @@ export async function addToQuote(
       },
     });
 
+    revalidatePath("/jobs");
     return {};
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

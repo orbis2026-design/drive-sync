@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { revalidatePath } from "next/cache";
 import { verifySession } from "@/lib/auth";
 import type { QuickSpecsKitItem } from "@/lib/parts-catalog";
 
@@ -94,5 +95,6 @@ export async function addQuickSpecsKitToWorkOrder(
     return { error: `Failed to save parts: ${writeErr.message}` };
   }
 
+  revalidatePath("/jobs");
   return {};
 }
