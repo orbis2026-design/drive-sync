@@ -118,6 +118,7 @@ export default function GlobalError({
         >
           <button
             onClick={reset}
+            aria-label="Reload the application"
             style={{
               backgroundColor: "#ffffff",
               color: "#09090b",
@@ -133,6 +134,7 @@ export default function GlobalError({
           </button>
           <button
             onClick={handleClearCache}
+            aria-label="Clear application cache and reload"
             style={{
               backgroundColor: "transparent",
               color: "#a1a1aa",

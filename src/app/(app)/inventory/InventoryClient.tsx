@@ -58,8 +58,7 @@ function ConsumableCard({
         </div>
         {item.isLow && (
           <span
-            className="flex-shrink-0 text-[10px] font-black uppercase px-2 py-0.5 rounded-full text-red-900 animate-pulse"
-            style={{ background: "linear-gradient(135deg, #ef4444, #ff6b6b)" }}
+            className="flex-shrink-0 text-[10px] font-black uppercase px-2 py-0.5 rounded-full text-gray-900 bg-gradient-to-br from-danger-500 to-danger-400 animate-pulse"
             role="status"
             aria-label="Low stock warning"
           >
