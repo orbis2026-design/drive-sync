@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
     const from = formData.get("From") as string | null;
     const body = formData.get("Body") as string | null;
     const to = formData.get("To") as string | null; // Our Twilio number (maps to tenant)
+    const messageSid = formData.get("MessageSid") as string | null;
 
     if (!from || !body) {
       return new NextResponse(twilioXml("Missing From or Body"), {
@@ -84,6 +85,10 @@ export async function POST(req: NextRequest) {
 
     // Check for opt-out keywords (Issue #138).
     // Set opted_out_sms = true before inserting the audit message.
+    // Intentional non-atomicity: the Prisma update (opted_out_sms) and the
+    // Supabase insert (messages audit trail) use separate clients. The message
+    // insert is the audit record and should always happen. The opted_out_sms
+    // update failure is logged but does not block the audit insert.
     const normalizedBody = body.trim().toUpperCase();
     if (client?.id && OPT_OUT_KEYWORDS.has(normalizedBody)) {
       try {
@@ -96,6 +101,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Idempotency guard — deduplicate repeated Twilio webhook deliveries.
+    // Twilio uses MessageSid as a globally unique identifier per message.
+    // If we have already processed this SID, return 200 without re-inserting.
+    if (messageSid) {
+      const { data: existingMessage, error: lookupError } = await supabase
+        .from("messages")
+        .select("id")
+        .eq("message_sid", messageSid)
+        .maybeSingle();
+
+      if (lookupError) {
+        console.error("[twilio/webhook] Idempotency check failed:", lookupError);
+        // Continue processing — better to risk a duplicate than to silently drop a message.
+      } else if (existingMessage) {
+        return new NextResponse(twilioXml(), {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        });
+      }
+    }
+
     // Insert message for audit trail regardless of opt-out status.
     const { error } = await supabase.from("messages").insert({
       tenant_id: tenantId,
@@ -103,6 +129,7 @@ export async function POST(req: NextRequest) {
       body: body.trim(),
       direction: "INBOUND",
       from_number: from,
+      message_sid: messageSid,
     });
 
     if (error) {

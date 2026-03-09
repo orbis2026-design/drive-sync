@@ -56,6 +56,19 @@ export async function provisionTenant(): Promise<
     });
 
     if (roleError) {
+      // Compensating transaction: remove the orphaned tenant row so we don't
+      // leave an unowned tenant in the database if role assignment fails.
+      const { error: deleteError } = await admin
+        .from("tenants")
+        .delete()
+        .eq("id", tenant.id);
+      if (deleteError) {
+        console.error(
+          "[register] Failed to clean up orphaned tenant:",
+          tenant.id,
+          deleteError,
+        );
+      }
       return { error: roleError.message };
     }
 

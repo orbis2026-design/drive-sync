@@ -83,6 +83,49 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const admin = createAdminClient();
 
   // -------------------------------------------------------------------------
+  // Idempotency guard — deduplicate repeated Stripe webhook deliveries.
+  // Stripe may retry an event multiple times if our endpoint returns non-2xx.
+  // We use the webhook_events table to record processed event IDs and skip
+  // any event we have already handled.
+  // -------------------------------------------------------------------------
+  {
+    // First, check if this event has already been processed.
+    const { data: existingEvent } = await admin
+      .from("webhook_events")
+      .select("event_id")
+      .eq("event_id", event.id)
+      .maybeSingle();
+
+    if (existingEvent) {
+      // Already processed — return 200 to stop Stripe from retrying.
+      return NextResponse.json({ received: true, duplicate: true });
+    }
+
+    // Record the event before processing to claim it. Use upsert with
+    // ignoreDuplicates so that a concurrent insert (race condition) is
+    // handled safely without overwriting the original processed_at timestamp.
+    const { error: upsertError } = await admin
+      .from("webhook_events")
+      .upsert(
+        {
+          event_id: event.id,
+          event_type: event.type,
+          processed_at: new Date().toISOString(),
+        },
+        { onConflict: "event_id", ignoreDuplicates: true },
+      );
+
+    if (upsertError) {
+      // For non-duplicate errors, log but continue — better to process
+      // than to silently drop a billing event.
+      console.warn(
+        "[stripe/webhook] webhook_events upsert warning:",
+        upsertError,
+      );
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Route by event type
   // -------------------------------------------------------------------------
 
@@ -138,7 +181,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       case "customer.subscription.deleted": {
         // Subscription was canceled or payment definitively failed.
-        // Flip status to PAST_DUE so the middleware guard (Issue #29) locks the
+        // Flip status to PAST_DUE so the proxy guard (Issue #29) locks the
         // mechanic out of the app until they re-subscribe.
         const subscription = event.data.object as Stripe.Subscription;
         const customerId =
@@ -195,7 +238,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             );
           }
 
-          // Auto-decrement van stock for the work order (best-effort)
+          // Auto-decrement van stock for the work order.
+          // Intentional non-atomicity: tenant activation (above) and stock decrement
+          // use separate Supabase calls. If the stock decrement fails, the tenant
+          // remains activated (correct behaviour — stock is best-effort inventory
+          // tracking and should not block payment confirmation).
           const workOrderId = session.metadata?.workOrderId;
           if (workOrderId) {
             await decrementStockForWorkOrder(workOrderId, legacyTenantId);
