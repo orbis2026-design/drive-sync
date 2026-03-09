@@ -60,7 +60,7 @@ const nextConfig: NextConfig = {
     const csp = [
       "default-src 'self'",
       // Scripts: self, Stripe checkout, Sentry replay bundle
-      "script-src 'self' https://js.stripe.com https://browser.sentry-cdn.com",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://browser.sentry-cdn.com",
       // Styles: self + inline (required by Tailwind / shadcn)
       "style-src 'self' 'unsafe-inline'",
       // Images: self, data URIs, Supabase storage, R2 public CDN
