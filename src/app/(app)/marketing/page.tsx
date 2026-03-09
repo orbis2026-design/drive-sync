@@ -1,36 +1,44 @@
-import { fetchQueuedMessages } from "./actions";
+import { fetchQueuedMessages, fetchRetentionQueue } from "./actions";
 import { MarketingClient } from "./MarketingClient";
 
 // ---------------------------------------------------------------------------
 // Metadata
 // ---------------------------------------------------------------------------
 export const metadata = {
-  title: "Marketing — DriveSync",
-  description: "Review AI-generated messages and send blast campaigns.",
+  title: "Retention Engine — DriveSync",
+  description: "AI-powered predictive maintenance outreach.",
 };
 
 // ---------------------------------------------------------------------------
 // Page component
 // ---------------------------------------------------------------------------
 export default async function MarketingPage() {
-  const result = await fetchQueuedMessages();
+  const [queueResult, retentionResult] = await Promise.all([
+    fetchQueuedMessages(),
+    fetchRetentionQueue(),
+  ]);
 
-  const messages = "data" in result ? result.data : [];
-  const error = "error" in result ? result.error : undefined;
+  const messages = "data" in queueResult ? queueResult.data : [];
+  const error = "error" in queueResult ? queueResult.error : undefined;
+  const retentionQueue = "data" in retentionResult ? retentionResult.data : [];
 
   return (
     <div className="flex flex-col min-h-full">
       {/* Page header */}
       <header className="px-4 pt-6 pb-2">
         <h1 className="text-4xl font-black text-white tracking-tight">
-          Marketing
+          Retention Engine
         </h1>
         <p className="text-base text-gray-400 mt-1">
-          Review AI messages · send campaigns.
+          Predictive maintenance alerts · AI-driven SMS outreach.
         </p>
       </header>
 
-      <MarketingClient initialMessages={messages} initialError={error} />
+      <MarketingClient
+        initialMessages={messages}
+        initialError={error}
+        initialRetentionQueue={retentionQueue}
+      />
     </div>
   );
 }

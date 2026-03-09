@@ -162,7 +162,34 @@ export async function GET(req: NextRequest) {
   const errors: string[] = [];
 
   try {
-    // --- 2. Fetch TenantVehicles with related maintenance data --------------
+    // --- 2. Fetch tenants that have autoRetentionEnabled = true (Issue #137) --
+    const { data: enabledTenants, error: tenantFetchError } = await adminDb
+      .from("tenants")
+      .select("id")
+      .eq("auto_retention_enabled", true);
+
+    if (tenantFetchError) {
+      return NextResponse.json(
+        { error: "Failed to fetch tenants", detail: tenantFetchError.message },
+        { status: 500 },
+      );
+    }
+
+    const enabledTenantIds = (enabledTenants ?? []).map(
+      (t: { id: string }) => t.id,
+    );
+
+    if (enabledTenantIds.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        runAt,
+        vehiclesScanned: 0,
+        campaignsQueued: 0,
+      });
+    }
+
+    // --- 3. Fetch TenantVehicles with related maintenance data --------------
+    //        Only for auto-retention-enabled tenants, exclude opted-out clients.
     const { data: vehicles, error: fetchError } = await adminDb
       .from("tenant_vehicles")
       .select(
@@ -175,7 +202,8 @@ export async function GET(req: NextRequest) {
         clients (
           first_name,
           last_name,
-          phone
+          phone,
+          opted_out_sms
         ),
         global_vehicles (
           make,
@@ -185,7 +213,8 @@ export async function GET(req: NextRequest) {
         )
       `,
       )
-      .not("mileage", "is", null);
+      .not("mileage", "is", null)
+      .in("tenant_id", enabledTenantIds);
 
     if (fetchError) {
       return NextResponse.json(
@@ -233,6 +262,10 @@ export async function GET(req: NextRequest) {
 
       const phone = (client as { phone?: string }).phone;
       if (!phone) continue;
+
+      // Skip opted-out clients (Issue #138).
+      const optedOut = (client as { opted_out_sms?: boolean }).opted_out_sms;
+      if (optedOut) continue;
 
       const firstName = (client as { first_name: string }).first_name;
       const { make, model, maintenance_schedule_json } = globalVehicle as {
@@ -288,7 +321,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // --- 3. Bulk-insert into OutboundCampaigns ----------------------------
+    // --- 4. Bulk-insert into OutboundCampaigns ----------------------------
     if (campaignRows.length > 0) {
       const { error: insertError } = await adminDb
         .from("outbound_campaigns")

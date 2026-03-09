@@ -1,7 +1,12 @@
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
 
 /**
- * Supabase browser client — uses the public anon key.
+ * Supabase browser client using @supabase/ssr.
+ *
+ * Uses createBrowserClient instead of the bare createClient so that session
+ * cookies are properly set and read by the middleware, Server Components,
+ * and Route Handlers. This ensures the auth session is visible server-side.
+ *
  * Subject to Row Level Security (RLS) policies.
  */
 export function createClient() {
@@ -14,5 +19,5 @@ export function createClient() {
     );
   }
 
-  return createSupabaseClient(url, anonKey);
+  return createBrowserClient(url, anonKey);
 }

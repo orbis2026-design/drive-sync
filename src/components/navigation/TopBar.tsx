@@ -22,7 +22,7 @@ const ROUTE_TITLES: Record<string, string> = {
   "/clients":    "Clients",
   "/settings":   "Settings",
   "/inventory":  "Inventory Management",
-  "/marketing":  "Marketing",
+  "/marketing":  "Retention Engine",
   "/accounting": "Accounting",
 };
 

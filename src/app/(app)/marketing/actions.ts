@@ -19,7 +19,36 @@ export type QueuedMessage = {
   client: { firstName: string; lastName: string } | null;
 };
 
+export type RetentionQueueItem = {
+  clientId: string;
+  clientName: string;
+  phone: string;
+  vehicleId: string;
+  vehicleMake: string;
+  vehicleModel: string;
+  vehicleYear: number;
+  currentMileage: number;
+  approachingMilestone: number;
+  smsDraft: string;
+};
+
+export type SentLogItem = {
+  id: string;
+  phoneNumber: string | null;
+  message: string;
+  sentAt: string | null;
+  clientName: string | null;
+};
+
 export type { BlastAudience } from "./constants";
+
+// ---------------------------------------------------------------------------
+// Constants for retention queue
+// ---------------------------------------------------------------------------
+
+const AVG_DAILY_MILES = 37;
+const CRITICAL_MILESTONES = [30_000, 60_000, 90_000];
+const LOOK_AHEAD_MILES = 3_000;
 
 // ---------------------------------------------------------------------------
 // fetchQueuedMessages
@@ -36,6 +65,7 @@ export async function fetchQueuedMessages(): Promise<
       where: {
         tenantId,
         status: "QUEUED",
+        client: { opted_out_sms: false },
       },
       orderBy: { createdAt: "asc" },
       select: {
@@ -66,6 +96,194 @@ export async function fetchQueuedMessages(): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// fetchRetentionQueue
+// ---------------------------------------------------------------------------
+
+export async function fetchRetentionQueue(): Promise<
+  { data: RetentionQueueItem[] } | { error: string }
+> {
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
+  try {
+    const vehicles = await prisma.vehicle.findMany({
+      where: {
+        tenantId,
+        mileageIn: { not: null },
+        client: { opted_out_sms: false },
+      },
+      select: {
+        id: true,
+        make: true,
+        model: true,
+        year: true,
+        mileageIn: true,
+        client: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            opted_out_sms: true,
+          },
+        },
+        workOrders: {
+          orderBy: { closedAt: "desc" },
+          take: 1,
+          select: { closedAt: true },
+        },
+      },
+    });
+
+    const bookingBaseUrl =
+      process.env.NEXT_PUBLIC_APP_URL ?? "https://app.drivesync.app";
+
+    const queue: RetentionQueueItem[] = [];
+
+    for (const vehicle of vehicles) {
+      if (!vehicle.mileageIn || !vehicle.client) continue;
+      if (vehicle.client.opted_out_sms) continue;
+
+      const lastServiceDate =
+        vehicle.workOrders[0]?.closedAt ?? null;
+
+      const daysSince = lastServiceDate
+        ? Math.max(
+            0,
+            Math.floor(
+              (Date.now() - new Date(lastServiceDate).getTime()) /
+                (1000 * 60 * 60 * 24),
+            ),
+          )
+        : 0;
+
+      const projectedMileage = vehicle.mileageIn + daysSince * AVG_DAILY_MILES;
+
+      for (const base of CRITICAL_MILESTONES) {
+        const nextOccurrence = Math.ceil(projectedMileage / base) * base;
+        const milesAway = nextOccurrence - projectedMileage;
+
+        if (milesAway > LOOK_AHEAD_MILES) continue;
+
+        const milestoneK = nextOccurrence / 1_000;
+        const smsDraft =
+          `Hi ${vehicle.client.firstName}, your ${vehicle.make} ${vehicle.model} is approaching its ` +
+          `${milestoneK}k service interval. Book your appointment: ${bookingBaseUrl}/request/${tenantId}`;
+
+        queue.push({
+          clientId: vehicle.client.id,
+          clientName: `${vehicle.client.firstName} ${vehicle.client.lastName}`,
+          phone: vehicle.client.phone,
+          vehicleId: vehicle.id,
+          vehicleMake: vehicle.make,
+          vehicleModel: vehicle.model,
+          vehicleYear: vehicle.year,
+          currentMileage: projectedMileage,
+          approachingMilestone: nextOccurrence,
+          smsDraft,
+        });
+        break; // Only queue the nearest milestone per vehicle
+      }
+    }
+
+    return { data: queue };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to load retention queue.";
+    return { error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// fetchSentLog
+// ---------------------------------------------------------------------------
+
+export async function fetchSentLog(): Promise<
+  { data: SentLogItem[] } | { error: string }
+> {
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
+  try {
+    const rows = await prisma.outboundCampaign.findMany({
+      where: { tenantId, status: "SENT" },
+      orderBy: { sentAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        phoneNumber: true,
+        message: true,
+        sentAt: true,
+        client: { select: { firstName: true, lastName: true } },
+      },
+    });
+
+    const data: SentLogItem[] = rows.map((r: (typeof rows)[number]) => ({
+      id: r.id,
+      phoneNumber: r.phoneNumber,
+      message: r.message,
+      sentAt: r.sentAt?.toISOString() ?? null,
+      clientName: r.client
+        ? `${r.client.firstName} ${r.client.lastName}`
+        : null,
+    }));
+
+    return { data };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to load sent log.";
+    return { error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// fetchAutoRetentionStatus
+// ---------------------------------------------------------------------------
+
+export async function fetchAutoRetentionStatus(): Promise<
+  { enabled: boolean } | { error: string }
+> {
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
+  try {
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { autoRetentionEnabled: true },
+    });
+    return { enabled: tenant?.autoRetentionEnabled ?? true };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to load retention status.";
+    return { error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// toggleAutoRetention
+// ---------------------------------------------------------------------------
+
+export async function toggleAutoRetention(
+  enabled: boolean,
+): Promise<{ success: true } | { error: string }> {
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
+  try {
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: { autoRetentionEnabled: enabled },
+    });
+    revalidatePath("/marketing");
+    return { success: true };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to update retention toggle.";
+    return { error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // approveAndSendMessage
 // ---------------------------------------------------------------------------
 
@@ -75,10 +293,16 @@ export async function approveAndSendMessage(
   try {
     const campaign = await prisma.outboundCampaign.findUnique({
       where: { id },
+      include: { client: { select: { opted_out_sms: true } } },
     });
     if (!campaign) return { error: "Message not found." };
     if (campaign.status !== "QUEUED")
       return { error: "Message is no longer queued." };
+
+    // Check opt-out status before sending.
+    if (campaign.client?.opted_out_sms) {
+      return { error: "Client has opted out of SMS messages." };
+    }
 
     if (campaign.phoneNumber) {
       const smsResult = await sendSMS(campaign.phoneNumber, campaign.message);
@@ -131,6 +355,54 @@ export async function discardMessage(
 }
 
 // ---------------------------------------------------------------------------
+// sendRetentionSms — sends a single retention SMS for a specific client
+// ---------------------------------------------------------------------------
+
+export async function sendRetentionSms(
+  clientId: string,
+  phone: string,
+  message: string,
+): Promise<{ success: true } | { error: string }> {
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
+  try {
+    // Verify client hasn't opted out.
+    const client = await prisma.client.findUnique({
+      where: { id: clientId },
+      select: { opted_out_sms: true },
+    });
+    if (client?.opted_out_sms) {
+      return { error: "Client has opted out of SMS messages." };
+    }
+
+    const smsResult = await sendSMS(phone, message);
+    if (!smsResult.success) {
+      return { error: `SMS delivery failed: ${smsResult.error}` };
+    }
+
+    await prisma.outboundCampaign.create({
+      data: {
+        tenantId,
+        clientId,
+        phoneNumber: phone,
+        message,
+        campaignType: "AI_GENERATED",
+        status: "SENT",
+        sentAt: new Date(),
+      },
+    });
+
+    revalidatePath("/marketing");
+    return { success: true };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to send retention SMS.";
+    return { error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // sendBlastCampaign
 // ---------------------------------------------------------------------------
 
@@ -146,7 +418,7 @@ export async function sendBlastCampaign(
   if (!tenantId) return { error: "Authentication required." };
 
   try {
-    // Determine eligible clients
+    // Determine eligible clients — always exclude opted-out clients.
     const cutoff = new Date();
     let clientIds: string[] = [];
 
@@ -165,7 +437,7 @@ export async function sendBlastCampaign(
       const recentIds = new Set(recentClients.map((r: (typeof recentClients)[number]) => r.clientId));
 
       const all = await prisma.client.findMany({
-        where: { tenantId },
+        where: { tenantId, opted_out_sms: false },
         select: { id: true },
       });
       clientIds = all.map((c: (typeof all)[number]) => c.id).filter((id: string) => !recentIds.has(id));
@@ -176,15 +448,16 @@ export async function sendBlastCampaign(
         where: {
           tenantId,
           closedAt: { lte: cutoff },
+          client: { opted_out_sms: false },
         },
         select: { clientId: true },
         distinct: ["clientId"],
       });
       clientIds = old.map((r: (typeof old)[number]) => r.clientId);
     } else {
-      // ALL
+      // ALL — excluding opted-out clients
       const all = await prisma.client.findMany({
-        where: { tenantId },
+        where: { tenantId, opted_out_sms: false },
         select: { id: true },
       });
       clientIds = all.map((c: (typeof all)[number]) => c.id);
@@ -196,7 +469,7 @@ export async function sendBlastCampaign(
 
     // Fetch phone numbers for eligible clients
     const clients = await prisma.client.findMany({
-      where: { id: { in: clientIds } },
+      where: { id: { in: clientIds }, opted_out_sms: false },
       select: { id: true, phone: true },
     });
 

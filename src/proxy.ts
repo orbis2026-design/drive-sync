@@ -1,3 +1,4 @@
+import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
 
 // ---------------------------------------------------------------------------
@@ -16,6 +17,8 @@ const PUBLIC_PREFIXES = [
   "/features/",
   "/tools/",
   "/intake",
+  "/favicon.ico",
+  "/public",
 ];
 
 const PUBLIC_EXACT = new Set(["/", "/auth/login", "/onboarding"]);
@@ -29,10 +32,81 @@ function isPublicPath(pathname: string): boolean {
 }
 
 /**
- * Attempts to detect an active Supabase session from the request cookies.
- * The Supabase JS SDK v2 persists sessions under a key matching the pattern
- * `sb-<project-ref>-auth-token`.  We only verify that the cookie exists and
- * is non-empty — full JWT validation happens server-side in Route Handlers.
+ * Proxy — runs on every request before page rendering.
+ *
+ * Responsibilities:
+ * 1. Refreshes the Supabase session using @supabase/ssr (cookie-based).
+ * 2. Injects an `x-pathname` header so Server Components (e.g. the (app)
+ *    layout guard) can read the current URL without access to searchParams.
+ * 3. Redirects unauthenticated requests to `/auth/login` for protected (app)
+ *    routes. Public routes bypass authentication checks.
+ *
+ * Note: The subscription PAST_DUE lock-out is enforced in
+ * `src/app/(app)/layout.tsx` using the x-pathname header. The proxy itself
+ * cannot perform Prisma queries (Edge runtime limitations), so the DB check
+ * remains in the Server Component layout.
+ */
+export async function proxy(req: NextRequest): Promise<NextResponse> {
+  const { pathname } = req.nextUrl;
+
+  // Start with a response that passes the request through.
+  let response = NextResponse.next({ request: req });
+
+  // Always inject the pathname header for Server Component layout guards.
+  response.headers.set("x-pathname", pathname);
+
+  // Attempt to refresh the Supabase session using @supabase/ssr.
+  // This keeps session cookies fresh on every request.
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (url && anonKey) {
+    const supabase = createServerClient(url, anonKey, {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
+          cookiesToSet.forEach(({ name, value }) =>
+            req.cookies.set(name, value),
+          );
+          response = NextResponse.next({ request: req });
+          response.headers.set("x-pathname", pathname);
+          cookiesToSet.forEach(({ name, value, options }) =>
+            response.cookies.set(name, value, options),
+          );
+        },
+      },
+    });
+
+    // Refresh the session (extends expiry, updates cookies).
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    // Skip auth check for public paths.
+    if (!isPublicPath(pathname) && !user) {
+      const loginUrl = req.nextUrl.clone();
+      loginUrl.pathname = "/auth/login";
+      loginUrl.searchParams.set("redirect", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+  } else {
+    // Env vars missing (build/test environment): fall back to cookie detection.
+    if (!isPublicPath(pathname) && !hasSessionCookie(req)) {
+      const loginUrl = req.nextUrl.clone();
+      loginUrl.pathname = "/auth/login";
+      loginUrl.searchParams.set("redirect", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+  }
+
+  return response;
+}
+
+/**
+ * Fallback: detect an active Supabase session from cookies.
+ * Used when env vars are unavailable (e.g. build environments).
  */
 function hasSessionCookie(req: NextRequest): boolean {
   for (const cookie of req.cookies.getAll()) {
@@ -47,44 +121,6 @@ function hasSessionCookie(req: NextRequest): boolean {
   return false;
 }
 
-/**
- * Proxy — runs on every request before page rendering.
- *
- * Responsibilities:
- * 1. Injects an `x-pathname` header so Server Components (e.g. the (app)
- *    layout guard) can read the current URL without access to searchParams.
- * 2. Redirects unauthenticated requests to `/auth/login` (except for public
- *    routes such as /auth/*, /portal/*, /api/*, /request/*, /glovebox/*).
- *
- * Note: The subscription PAST_DUE lock-out is enforced in
- * `src/app/(app)/layout.tsx` using the x-pathname header. The proxy itself
- * cannot perform Supabase queries (Edge runtime limitations), so the DB check
- * remains in the Server Component layout.
- */
-export function proxy(req: NextRequest): NextResponse {
-  const { pathname } = req.nextUrl;
-
-  // Always inject the pathname header for Server Component layout guards.
-  const response = NextResponse.next();
-  response.headers.set("x-pathname", pathname);
-
-  // Skip auth check for public paths.
-  if (isPublicPath(pathname)) {
-    return response;
-  }
-
-  // Redirect unauthenticated users to the login page.
-  if (!hasSessionCookie(req)) {
-    const loginUrl = req.nextUrl.clone();
-    loginUrl.pathname = "/auth/login";
-    // Preserve the original destination so the login page can redirect back.
-    loginUrl.searchParams.set("redirect", pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  return response;
-}
-
 export const config = {
   matcher: [
     /*
@@ -93,4 +129,3 @@ export const config = {
     "/((?!_next/static|_next/image|favicon.ico|icons|manifest.json|sw.js|workbox-.*.js).*)",
   ],
 };
-

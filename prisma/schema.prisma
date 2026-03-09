@@ -39,6 +39,8 @@ model Tenant {
   shopZipCode        String?            // Shop zip code for district-level tax lookup
   partsTaxRate       Float              @default(0.085)
   laborTaxRate       Float              @default(0.0)
+  // Predictive Retention Engine (Issue #137)
+  autoRetentionEnabled Boolean          @default(true)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
@@ -70,6 +72,8 @@ model Client {
   isCommercialFleet Boolean  @default(false) // true for small-business fleet accounts
   // RBAC: Supabase Auth UID for the FLEET_CLIENT portal user (Issue #59)
   clientUserId      String?
+  // Twilio compliance: opt-out flag set when client replies STOP (Issue #138)
+  opted_out_sms     Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
