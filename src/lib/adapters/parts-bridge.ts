@@ -135,176 +135,27 @@ const OAuthTokenResponseSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Mock catalogue — realistic entries keyed by vehicle category
+// Mock catalogue loader — dev / test only (never bundled in production)
 // ---------------------------------------------------------------------------
 
-interface MockPart {
-  partNumber: string;
-  name: string;
-  brand: string;
-  wholesaleCostCents: number;
-  etaMinutes: number;
-  availabilityCount: number;
-  supplier: "O'Reilly" | "AutoZone";
-  /** Keywords used to match the free-text query. */
-  keywords: string[];
-  fitment: {
-    yearStart: number;
-    yearEnd: number;
-    makes: string[];
-    models: string[];
-  };
+/**
+ * Dynamically loads and validates the mock parts-bridge catalogue fixture.
+ * The dynamic import ensures the fixture file is tree-shaken out of
+ * production bundles entirely.
+ */
+async function loadMockPartsCatalogue() {
+  const { MOCK_PARTS, MockPartsCatalogueSchema } = await import(
+    "../../__test__/fixtures/mock-parts-bridge-catalogue"
+  );
+  const parsed = MockPartsCatalogueSchema.safeParse(MOCK_PARTS);
+  if (!parsed.success) {
+    throw new PartsBridgeError(
+      "UPSTREAM_ERROR",
+      `Mock parts catalogue fixture failed validation: ${parsed.error.message}`,
+    );
+  }
+  return parsed.data;
 }
-
-const MOCK_PARTS: MockPart[] = [
-  // Brake Pads
-  {
-    partNumber: "PB-BP-CER-F-1",
-    name: "Front Brake Pads — Ceramic",
-    brand: "Akebono",
-    wholesaleCostCents: 5400,
-    etaMinutes: 45,
-    availabilityCount: 14,
-    supplier: "O'Reilly",
-    keywords: ["brake", "pad", "pads", "ceramic", "front"],
-    fitment: {
-      yearStart: 2010,
-      yearEnd: 2026,
-      makes: ["Honda", "Toyota", "Nissan", "Hyundai", "Kia"],
-      models: [],
-    },
-  },
-  {
-    partNumber: "PB-BP-SEM-F-1",
-    name: "Front Brake Pads — Semi-Metallic",
-    brand: "Wagner",
-    wholesaleCostCents: 3800,
-    etaMinutes: 30,
-    availabilityCount: 22,
-    supplier: "AutoZone",
-    keywords: ["brake", "pad", "pads", "semi-metallic", "metallic", "front"],
-    fitment: {
-      yearStart: 2005,
-      yearEnd: 2026,
-      makes: ["Ford", "Chevrolet", "GMC", "Dodge", "Ram"],
-      models: [],
-    },
-  },
-  {
-    partNumber: "PB-BP-CER-R-1",
-    name: "Rear Brake Pads — Ceramic",
-    brand: "Akebono",
-    wholesaleCostCents: 4900,
-    etaMinutes: 45,
-    availabilityCount: 10,
-    supplier: "O'Reilly",
-    keywords: ["brake", "pad", "pads", "ceramic", "rear"],
-    fitment: {
-      yearStart: 2010,
-      yearEnd: 2026,
-      makes: ["Honda", "Toyota", "Nissan", "Hyundai", "Kia"],
-      models: [],
-    },
-  },
-  // Rotors
-  {
-    partNumber: "PB-BR-OEM-F-1",
-    name: "Front Brake Rotor — OEM Replacement",
-    brand: "DuraStop",
-    wholesaleCostCents: 6200,
-    etaMinutes: 45,
-    availabilityCount: 8,
-    supplier: "O'Reilly",
-    keywords: ["rotor", "rotors", "disc", "discs", "brake", "front"],
-    fitment: {
-      yearStart: 2005,
-      yearEnd: 2026,
-      makes: ["Honda", "Toyota", "Ford", "Chevrolet", "Nissan"],
-      models: [],
-    },
-  },
-  {
-    partNumber: "PB-BR-DS-F-1",
-    name: "Front Brake Rotor — Drilled & Slotted",
-    brand: "PowerStop",
-    wholesaleCostCents: 9800,
-    etaMinutes: 90,
-    availabilityCount: 4,
-    supplier: "AutoZone",
-    keywords: ["rotor", "rotors", "drilled", "slotted", "sport", "front"],
-    fitment: {
-      yearStart: 2010,
-      yearEnd: 2026,
-      makes: ["Ford", "Chevrolet", "Subaru", "Jeep"],
-      models: [],
-    },
-  },
-  {
-    partNumber: "PB-BR-OEM-R-1",
-    name: "Rear Brake Rotor — OEM Replacement",
-    brand: "DuraStop",
-    wholesaleCostCents: 5800,
-    etaMinutes: 45,
-    availabilityCount: 6,
-    supplier: "O'Reilly",
-    keywords: ["rotor", "rotors", "disc", "discs", "brake", "rear"],
-    fitment: {
-      yearStart: 2005,
-      yearEnd: 2026,
-      makes: ["Honda", "Toyota", "Ford", "Chevrolet", "Nissan"],
-      models: [],
-    },
-  },
-  // Filters
-  {
-    partNumber: "PB-EF-OIL-1",
-    name: "Oil Filter — Extended Life",
-    brand: "Mobil 1",
-    wholesaleCostCents: 1100,
-    etaMinutes: 20,
-    availabilityCount: 60,
-    supplier: "AutoZone",
-    keywords: ["oil", "filter", "filters"],
-    fitment: {
-      yearStart: 1995,
-      yearEnd: 2026,
-      makes: ["Honda", "Toyota", "Ford", "Chevrolet", "Nissan", "BMW", "Audi"],
-      models: [],
-    },
-  },
-  {
-    partNumber: "PB-EF-AIR-1",
-    name: "Engine Air Filter",
-    brand: "K&N",
-    wholesaleCostCents: 2400,
-    etaMinutes: 20,
-    availabilityCount: 25,
-    supplier: "O'Reilly",
-    keywords: ["air", "filter", "filters", "engine", "airfilter"],
-    fitment: {
-      yearStart: 1995,
-      yearEnd: 2026,
-      makes: ["Honda", "Toyota", "Ford", "Chevrolet", "Nissan", "BMW", "Audi"],
-      models: [],
-    },
-  },
-  {
-    partNumber: "PB-CF-CAB-1",
-    name: "Cabin Air Filter — HEPA",
-    brand: "Bosch",
-    wholesaleCostCents: 1800,
-    etaMinutes: 20,
-    availabilityCount: 30,
-    supplier: "O'Reilly",
-    keywords: ["cabin", "air", "filter", "filters", "hepa", "pollen"],
-    fitment: {
-      yearStart: 2000,
-      yearEnd: 2026,
-      makes: ["Honda", "Toyota", "Ford", "Chevrolet", "Nissan", "BMW"],
-      models: [],
-    },
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -644,8 +495,11 @@ export class PartsBridgeAdapter {
     const { year, make } = parseVin(vin);
     const queryLower = query.toLowerCase().trim();
 
+    // Dynamically load and validate the mock catalogue fixture.
+    const mockParts = await loadMockPartsCatalogue();
+
     // Filter the local catalogue by keyword match and VIN fitment.
-    const matched = MOCK_PARTS.filter((part) => {
+    const matched = mockParts.filter((part) => {
       // Keyword filter: query must overlap with at least one keyword.
       if (queryLower) {
         const hasKeyword = part.keywords.some((kw) =>

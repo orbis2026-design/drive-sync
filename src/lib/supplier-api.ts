@@ -8,8 +8,9 @@
  * **must** be set to real vendor credentials. The module will throw at import
  * time if any are missing so that mock data never leaks into live deployments.
  *
- * In development / test the mock catalogue is used when credentials are absent,
- * allowing the full UI flow to be exercised without a live vendor account.
+ * In development / test the mock catalogue is loaded on demand (via dynamic
+ * import) only when credentials are absent, so the fixture is never bundled in
+ * production builds.
  */
 
 import { z } from "zod";
@@ -179,14 +180,15 @@ export async function getSupplierToken(): Promise<AuthToken> {
       "[supplier-api] Production requires supplier credentials. Set SUPPLIER_BASE_URL, SUPPLIER_CLIENT_ID, SUPPLIER_CLIENT_SECRET.",
     );
   }
-  console.warn(
-    "[supplier-api] Using dev-only mock bearer token. Set supplier credentials for real API access.",
+  console.error(
+    "[supplier-api] DEV PATH: No real supplier credentials are configured. " +
+      "To connect to a live vendor account set SUPPLIER_BASE_URL, " +
+      "SUPPLIER_CLIENT_ID, and SUPPLIER_CLIENT_SECRET.",
   );
-  _cachedToken = {
-    accessToken: `mock-bearer-${Date.now()}`,
-    expiresAt: now + 3_600_000,
-  };
-  return _cachedToken;
+  throw new Error(
+    "[supplier-api] Missing supplier credentials. " +
+      "Set SUPPLIER_BASE_URL, SUPPLIER_CLIENT_ID, and SUPPLIER_CLIENT_SECRET.",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -205,186 +207,26 @@ function etaLabel(minutes: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Mock parts catalogue — dev / test only (gated by HAS_REAL_CREDENTIALS)
+// Mock catalogue loader — dev / test only (never bundled in production)
 // ---------------------------------------------------------------------------
 
-interface MockEntry {
-  partNumber: string;
-  name: string;
-  brand: string;
-  wholesalePriceCents: number;
-  etaMinutes: number;
-  warehouseQty: number;
-  category: string;
-  subcategory: string;
-  /** Supplier source name. */
-  source: "AutoZone" | "Worldpac";
+/**
+ * Dynamically loads and validates the mock supplier catalogue fixture.
+ * The dynamic import ensures the fixture file is tree-shaken out of
+ * production bundles entirely.
+ */
+async function loadMockCatalogue() {
+  const { MOCK_CATALOGUE, MockCatalogueSchema } = await import(
+    "../__test__/fixtures/mock-supplier-catalogue"
+  );
+  const parsed = MockCatalogueSchema.safeParse(MOCK_CATALOGUE);
+  if (!parsed.success) {
+    throw new Error(
+      `[supplier-api] Mock catalogue fixture failed validation: ${parsed.error.message}`,
+    );
+  }
+  return parsed.data;
 }
-
-const MOCK_CATALOGUE: MockEntry[] = [
-  // Brakes — Rotors
-  {
-    partNumber: "NP-BR-OEM-FRONT-1",
-    name: "Front Brake Rotor — OEM",
-    brand: "DuraStop",
-    category: "Brakes",
-    subcategory: "Rotors",
-    wholesalePriceCents: 6200,
-    etaMinutes: 45,
-    warehouseQty: 8,
-    source: "AutoZone",
-  },
-  {
-    partNumber: "NP-BR-CER-FRONT-1",
-    name: "Front Brake Rotor — Drilled & Slotted",
-    brand: "PowerStop",
-    category: "Brakes",
-    subcategory: "Rotors",
-    wholesalePriceCents: 9800,
-    etaMinutes: 90,
-    warehouseQty: 3,
-    source: "Worldpac",
-  },
-  // Brakes — Pads
-  {
-    partNumber: "NP-BP-CER-FRONT-1",
-    name: "Front Brake Pads — Ceramic",
-    brand: "Akebono",
-    category: "Brakes",
-    subcategory: "Pads — Ceramic",
-    wholesalePriceCents: 5400,
-    etaMinutes: 45,
-    warehouseQty: 12,
-    source: "AutoZone",
-  },
-  {
-    partNumber: "NP-BP-SEM-FRONT-1",
-    name: "Front Brake Pads — Semi-Metallic",
-    brand: "Wagner",
-    category: "Brakes",
-    subcategory: "Pads — Semi-Metallic",
-    wholesalePriceCents: 3800,
-    etaMinutes: 30,
-    warehouseQty: 20,
-    source: "AutoZone",
-  },
-  // Engine — Filters
-  {
-    partNumber: "NP-EF-OIL-1",
-    name: "Oil Filter",
-    brand: "Mobil 1",
-    category: "Engine",
-    subcategory: "Filters",
-    wholesalePriceCents: 1100,
-    etaMinutes: 25,
-    warehouseQty: 50,
-    source: "AutoZone",
-  },
-  {
-    partNumber: "NP-EF-AIR-1",
-    name: "Engine Air Filter",
-    brand: "K&N",
-    category: "Engine",
-    subcategory: "Filters",
-    wholesalePriceCents: 2400,
-    etaMinutes: 25,
-    warehouseQty: 18,
-    source: "AutoZone",
-  },
-  // Engine — Ignition
-  {
-    partNumber: "NP-IG-SP-1",
-    name: "Iridium Spark Plugs (Set of 4)",
-    brand: "NGK",
-    category: "Engine",
-    subcategory: "Ignition",
-    wholesalePriceCents: 4800,
-    etaMinutes: 30,
-    warehouseQty: 10,
-    source: "Worldpac",
-  },
-  {
-    partNumber: "NP-IG-COIL-1",
-    name: "Ignition Coil Pack",
-    brand: "Delphi",
-    category: "Engine",
-    subcategory: "Ignition",
-    wholesalePriceCents: 8900,
-    etaMinutes: 60,
-    warehouseQty: 5,
-    source: "Worldpac",
-  },
-  // Suspension — Shocks
-  {
-    partNumber: "NP-SU-SH-FRONT-1",
-    name: "Front Shock Absorber",
-    brand: "KYB",
-    category: "Suspension",
-    subcategory: "Shocks & Struts",
-    wholesalePriceCents: 7200,
-    etaMinutes: 180,
-    warehouseQty: 4,
-    source: "Worldpac",
-  },
-  // Steering — Tie Rods
-  {
-    partNumber: "NP-ST-TR-OUTER-1",
-    name: "Outer Tie Rod End",
-    brand: "Moog",
-    category: "Steering",
-    subcategory: "Tie Rods",
-    wholesalePriceCents: 3400,
-    etaMinutes: 45,
-    warehouseQty: 7,
-    source: "AutoZone",
-  },
-  // Electrical — Sensors
-  {
-    partNumber: "NP-EL-O2-UP-1",
-    name: "Upstream Oxygen Sensor",
-    brand: "Bosch",
-    category: "Electrical",
-    subcategory: "Sensors",
-    wholesalePriceCents: 6100,
-    etaMinutes: 60,
-    warehouseQty: 6,
-    source: "Worldpac",
-  },
-  {
-    partNumber: "NP-EL-MAF-1",
-    name: "Mass Airflow Sensor",
-    brand: "Standard Motor",
-    category: "Electrical",
-    subcategory: "Sensors",
-    wholesalePriceCents: 9200,
-    etaMinutes: 240,
-    warehouseQty: 3,
-    source: "Worldpac",
-  },
-  // Cooling
-  {
-    partNumber: "NP-CL-WP-1",
-    name: "Water Pump",
-    brand: "GMB",
-    category: "Cooling",
-    subcategory: "Water Pumps",
-    wholesalePriceCents: 8400,
-    etaMinutes: 90,
-    warehouseQty: 5,
-    source: "Worldpac",
-  },
-  {
-    partNumber: "NP-CL-TH-1",
-    name: "Thermostat & Housing Assembly",
-    brand: "Stant",
-    category: "Cooling",
-    subcategory: "Thermostats",
-    wholesalePriceCents: 3200,
-    etaMinutes: 45,
-    warehouseQty: 9,
-    source: "AutoZone",
-  },
-];
 
 // Build category tree from the flat catalogue.
 type CategoryTree = Record<string, string[]>;
@@ -418,8 +260,9 @@ export async function getCategoryTree(): Promise<CategoryTree> {
   }
 
   // --- Dev / test: build tree from mock catalogue --------------------------
+  const catalogue = await loadMockCatalogue();
   const tree: CategoryTree = {};
-  for (const entry of MOCK_CATALOGUE) {
+  for (const entry of catalogue) {
     if (!tree[entry.category]) tree[entry.category] = [];
     if (!tree[entry.category].includes(entry.subcategory)) {
       tree[entry.category].push(entry.subcategory);
@@ -486,9 +329,8 @@ export interface SearchPartsOptions {
 export async function searchParts(
   options: SearchPartsOptions,
 ): Promise<SupplierPart[]> {
-  const token = await getSupplierToken();
-
   if (HAS_REAL_CREDENTIALS) {
+    const token = await getSupplierToken();
     // --- Real API call -------------------------------------------------------
     const params = new URLSearchParams();
     if (options.category) params.set("category", options.category);
@@ -568,7 +410,9 @@ export async function searchParts(
 
   const { category, subcategory, query } = options;
 
-  let results = MOCK_CATALOGUE.filter((e) => {
+  const catalogue = await loadMockCatalogue();
+
+  let results = catalogue.filter((e) => {
     if (category && e.category !== category) return false;
     if (subcategory && e.subcategory !== subcategory) return false;
     if (query) {
@@ -585,7 +429,7 @@ export async function searchParts(
   });
 
   // Default: return everything in the category when no subcategory filter.
-  if (!category && !subcategory && !query) results = MOCK_CATALOGUE;
+  if (!category && !subcategory && !query) results = catalogue;
 
   return results.map((e) => {
     const availabilityType: "SAME_DAY" | "ORDER_ONLY" =
@@ -628,9 +472,8 @@ export async function checkInventory(
   partNumber: string,
   warehouseId: string = "WH-MAIN",
 ): Promise<InventoryResult> {
-  const token = await getSupplierToken();
-
   if (HAS_REAL_CREDENTIALS) {
+    const token = await getSupplierToken();
     const res = await fetch(
       `${SUPPLIER_BASE_URL}/inventory/${encodeURIComponent(partNumber)}?warehouse=${encodeURIComponent(warehouseId)}`,
       {
@@ -672,7 +515,8 @@ export async function checkInventory(
     );
   }
 
-  const found = MOCK_CATALOGUE.find((e) => e.partNumber === partNumber);
+  const catalogue = await loadMockCatalogue();
+  const found = catalogue.find((e) => e.partNumber === partNumber);
 
   if (!found) {
     return {
@@ -701,9 +545,8 @@ export async function createPurchaseOrder(
   lines: PurchaseOrderLine[],
   deliveryType: DeliveryType,
 ): Promise<PurchaseOrderResult> {
-  const token = await getSupplierToken();
-
   if (HAS_REAL_CREDENTIALS) {
+    const token = await getSupplierToken();
     const res = await fetch(`${SUPPLIER_BASE_URL}/purchase-orders`, {
       method: "POST",
       headers: {
@@ -729,12 +572,18 @@ export async function createPurchaseOrder(
   }
 
   // --- Dev / test mock PO --------------------------------------------------
+  if (IS_PRODUCTION) {
+    throw new Error(
+      "[supplier-api] Production requires supplier credentials. Set SUPPLIER_BASE_URL, SUPPLIER_CLIENT_ID, SUPPLIER_CLIENT_SECRET.",
+    );
+  }
 
+  const catalogue = await loadMockCatalogue();
   const totalMinutes =
     deliveryType === "WILL_CALL"
       ? 30
       : Math.max(...lines.map((l) => {
-          const e = MOCK_CATALOGUE.find((c) => c.partNumber === l.partNumber);
+          const e = catalogue.find((c) => c.partNumber === l.partNumber);
           return e?.etaMinutes ?? 60;
         }));
 
