@@ -514,12 +514,7 @@ function BottomSheet({ result, vin, resolvedSubmodel, onClose }: BottomSheetProp
     setSaving(true);
     setSaveError(null);
 
-    // TODO: replace with tenantId from the authenticated session (e.g. via
-    // next-auth / Supabase Auth) before deploying to production.
-    // Hard-coding a placeholder ID here is intentional for the prototype stage
-    // and MUST NOT reach a production database with RLS enabled.
     const res = await createTenantVehicle({
-      tenantId: "00000000-0000-0000-0000-000000000001",
       clientId: clientId.trim(),
       globalVehicleId: globalVehicle.id,
       vin,

@@ -110,6 +110,15 @@ export interface AuthToken {
 let _cachedToken: AuthToken | null = null;
 
 // ---------------------------------------------------------------------------
+// Zod schema for supplier OAuth token response
+// ---------------------------------------------------------------------------
+
+const SupplierOAuthResponseSchema = z.object({
+  access_token: z.string(),
+  expires_in: z.number().optional(),
+});
+
+// ---------------------------------------------------------------------------
 // OAuth / API-key authentication
 // ---------------------------------------------------------------------------
 
@@ -145,20 +154,20 @@ export async function getSupplierToken(): Promise<AuthToken> {
       throw new Error(`Supplier OAuth failed: HTTP ${res.status}`);
     }
 
-    const json = (await res.json()) as {
-      access_token?: string;
-      expires_in?: number;
-    };
-    if (!json.access_token) {
-      throw new Error("Supplier OAuth response missing access_token.");
+    const raw = await res.json();
+    const parsed = SupplierOAuthResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(
+        `Supplier OAuth response has unexpected shape: ${parsed.error.message}`,
+      );
     }
 
     const expiresIn =
-      typeof json.expires_in === "number"
-        ? json.expires_in * 1000
+      typeof parsed.data.expires_in === "number"
+        ? parsed.data.expires_in * 1000
         : 3_600_000;
     _cachedToken = {
-      accessToken: json.access_token,
+      accessToken: parsed.data.access_token,
       expiresAt: now + expiresIn,
     };
     return _cachedToken;
