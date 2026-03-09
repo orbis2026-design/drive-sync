@@ -55,21 +55,26 @@ export async function syncInspection(
     return { error: "Cannot sync inspection: work order ID is missing." };
   }
 
-  const { tenantId } = await verifySession();
+  try {
+    const { tenantId } = await verifySession();
 
-  const adminDb = createAdminClient();
+    const adminDb = createAdminClient();
 
-  const { error } = await adminDb
-    .from("work_orders")
-    .update({ inspection_json: payload })
-    .eq("id", workOrderId)
-    .eq("tenant_id", tenantId);
+    const { error } = await adminDb
+      .from("work_orders")
+      .update({ inspection_json: payload })
+      .eq("id", workOrderId)
+      .eq("tenant_id", tenantId);
 
-  if (error) {
-    return { error: `Failed to sync inspection: ${error.message}` };
+    if (error) {
+      return { error: `Failed to sync inspection: ${error.message}` };
+    }
+
+    return {};
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected error.";
+    return { error: message };
   }
-
-  return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -85,21 +90,26 @@ export async function saveVoiceNote(
     return { error: "Cannot save voice note: work order ID is missing." };
   }
 
-  const { tenantId } = await verifySession();
+  try {
+    const { tenantId } = await verifySession();
 
-  const adminDb = createAdminClient();
+    const adminDb = createAdminClient();
 
-  const { error } = await adminDb
-    .from("work_orders")
-    .update({ voice_note_json: note })
-    .eq("id", workOrderId)
-    .eq("tenant_id", tenantId);
+    const { error } = await adminDb
+      .from("work_orders")
+      .update({ voice_note_json: note })
+      .eq("id", workOrderId)
+      .eq("tenant_id", tenantId);
 
-  if (error) {
-    return { error: `Failed to save voice note: ${error.message}` };
+    if (error) {
+      return { error: `Failed to save voice note: ${error.message}` };
+    }
+
+    return {};
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected error.";
+    return { error: message };
   }
-
-  return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -128,16 +138,21 @@ export async function saveChecklist(
     return { error: "Cannot save checklist: work order ID is missing." };
   }
 
-  const { tenantId } = await verifySession();
+  try {
+    const { tenantId } = await verifySession();
 
-  const adminDb = createAdminClient();
-  const { error } = await adminDb
-    .from("work_orders")
-    .update({ checklists_json: items })
-    .eq("id", workOrderId)
-    .eq("tenant_id", tenantId);
-  if (error) {
-    return { error: `Failed to save checklist: ${error.message}` };
+    const adminDb = createAdminClient();
+    const { error } = await adminDb
+      .from("work_orders")
+      .update({ checklists_json: items })
+      .eq("id", workOrderId)
+      .eq("tenant_id", tenantId);
+    if (error) {
+      return { error: `Failed to save checklist: ${error.message}` };
+    }
+    return {};
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected error.";
+    return { error: message };
   }
-  return {};
 }
