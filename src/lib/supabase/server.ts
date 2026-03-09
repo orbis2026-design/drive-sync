@@ -30,13 +30,15 @@ export async function createServerClient() {
         return cookieStore.getAll();
       },
       setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options),
-          );
-        } catch {
-          // setAll can throw in Server Components (read-only context).
-          // This is safe to ignore — the middleware handles cookie refresh.
+        // In Server Components the cookie store is read-only — set() will throw.
+        // We intentionally swallow that error here per-cookie; session refresh
+        // is handled by the proxy / a Route Handler, not by Server Components.
+        for (const { name, value, options } of cookiesToSet) {
+          try {
+            cookieStore.set(name, value, options);
+          } catch {
+            // expected in Server Component context — safe to ignore
+          }
         }
       },
     },
