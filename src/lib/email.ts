@@ -32,7 +32,7 @@ function getResendClient(): Resend | null {
 export interface SendContractEmailInput {
   /** Recipient email address */
   to: string;
-  /** Customer name for personalisation */
+  /** Customer name for personalization */
   clientName: string;
   /** Shop name shown in the email */
   shopName: string;
