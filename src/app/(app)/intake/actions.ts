@@ -104,10 +104,10 @@ export async function decodeVin(
 
   // ── Step C: Cache HIT ─────────────────────────────────────────────────────
   if (existing) {
-    const gv = existing as GlobalVehicleData;
-    const submodelOptions = gv.submodel_options_json ?? [];
+    const globalVehicle = existing as GlobalVehicleData;
+    const submodelOptions = globalVehicle.submodel_options_json ?? [];
     return {
-      globalVehicle: gv,
+      globalVehicle,
       cacheHit: true,
       ...(submodelOptions.length > 1 ? { submodelOptions } : {}),
     };

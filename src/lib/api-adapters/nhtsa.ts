@@ -97,21 +97,22 @@ function buildEngineLabel(item: z.infer<typeof NhtsaResultItemSchema>): string |
   if (cylinders) {
     const n = parseInt(cylinders, 10);
     if (!isNaN(n)) {
-      parts.push(n <= 4 ? `${n}-Cyl` : `V${n}`);
+      parts.push(`${n}-Cyl`);
     }
   }
 
-  const model = item.EngineModel ?? null;
-  if (model && parts.length === 0) {
+  const engineModel = item.EngineModel ?? null;
+  if (engineModel && parts.length === 0) {
     // Use engine model name as fallback when displacement/cylinders are absent
-    return model;
+    return engineModel;
   }
 
   if (parts.length === 0) return null;
 
-  // Optionally append the engine model code if it's short (e.g. "2AR-FE")
-  if (model && model.length <= 12) {
-    parts.push(model);
+  // Append the engine model code when it's a short identifier (e.g. "2AR-FE")
+  const MAX_ENGINE_MODEL_LABEL_LENGTH = 12;
+  if (engineModel && engineModel.length <= MAX_ENGINE_MODEL_LABEL_LENGTH) {
+    parts.push(engineModel);
   }
 
   return parts.join(" ");
