@@ -57,14 +57,14 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Next.js middleware injects the x-pathname header on every request.
+  // Next.js proxy injects the x-pathname header on every request.
   // We use it here to detect if the user is already on the billing page.
   const headersList = await headers();
   const pathname = headersList.get("x-pathname") ?? "";
 
   // ---------------------------------------------------------------------------
-  // Auth guard (Issue #132) — double-check backup to the middleware.
-  // The middleware should have already redirected unauthenticated users, but
+  // Auth guard (Issue #132) — double-check backup to the proxy.
+  // The proxy should have already redirected unauthenticated users, but
   // this server-side check provides an extra layer of security.
   // ---------------------------------------------------------------------------
   try {
@@ -75,7 +75,7 @@ export default async function AppLayout({
     }
   } catch {
     // If server client creation fails (e.g. missing env vars in dev),
-    // fall through and let the middleware handle it.
+    // fall through and let the proxy handle it.
   }
 
   // Allow the billing page to always render (prevents redirect loop).
