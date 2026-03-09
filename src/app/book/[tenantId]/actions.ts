@@ -31,6 +31,17 @@ export async function submitBooking(
 
   const admin = createAdminClient();
 
+  // Pre-flight: check whether this client already exists so we can roll back
+  // an orphaned insert if the work-order creation fails later.
+  const { data: existingClient } = await admin
+    .from("clients")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("phone", phone)
+    .maybeSingle();
+
+  const clientIsNew = !existingClient;
+
   // 1. Upsert client by phone within the tenant
   const { data: clientData, error: clientError } = await admin
     .from("clients")
@@ -67,6 +78,15 @@ export async function submitBooking(
     .single();
 
   if (woError || !workOrder) {
+    // Compensating rollback: remove the orphaned client row when the client
+    // was brand-new (i.e. we created it in this request). An existing client
+    // updated by the upsert above must NOT be deleted.
+    if (clientIsNew) {
+      try {
+        await admin.from("clients").delete().eq("id", clientData.id);
+      } catch {
+        // Best-effort cleanup — the work-order error is still returned below.
+      }
     // Compensating delete: remove the client we just created to avoid an
     // orphaned record with no work order attached.
     try {

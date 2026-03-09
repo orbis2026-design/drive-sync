@@ -272,6 +272,48 @@ export async function processPayment(
     // Non-fatal — Prisma write succeeded.
   }
 
+  // --- Auto-deduct consumables (best-effort) --------------------------------
+  // When a job is closed, query the vehicle's oilType to find the matching
+  // consumable and deduct the oil capacity (defaulting to 5 quarts if unknown).
+  // The find + update are wrapped in a transaction so the read-then-write is
+  // atomic and concurrent payment closures cannot double-deduct the same stock.
+  try {
+    await prisma.$transaction(async (tx) => {
+      const wo = await tx.workOrder.findFirst({
+        where: { id: workOrderId, tenantId },
+        select: {
+          vehicle: { select: { oilType: true } },
+        },
+      });
+
+      const oilType = wo?.vehicle?.oilType ?? null;
+
+      if (!oilType) return;
+
+      // Find the matching consumable row by name similarity (case-insensitive prefix match)
+      const consumable = await tx.consumable.findFirst({
+        where: {
+          tenantId,
+          name: { contains: oilType.split(" ")[0], mode: "insensitive" },
+        },
+        select: { id: true, currentStock: true },
+      });
+
+      if (consumable) {
+        const newStock = Math.max(
+          0,
+          consumable.currentStock - DEFAULT_OIL_DEDUCTION_QUARTS,
+        );
+        await tx.consumable.update({
+          where: { id: consumable.id },
+          data: { currentStock: newStock },
+        });
+      }
+    });
+  } catch {
+    // Non-fatal — consumable deduction is best-effort.
+  }
+
   revalidatePath("/jobs");
   return { success: true, closedAt: closedAt.toISOString() };
 }
