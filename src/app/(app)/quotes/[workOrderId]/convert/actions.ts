@@ -18,6 +18,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,6 +59,9 @@ export async function convertDiagnosticToRepairQuote(
     return { error: "Missing work order ID." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   // --- Fetch current state ---------------------------------------------------
   let workOrder: {
     id: string;
@@ -69,8 +73,8 @@ export async function convertDiagnosticToRepairQuote(
   } | null = null;
 
   try {
-    workOrder = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
+    workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
       select: {
         id: true,
         status: true,
@@ -107,8 +111,8 @@ export async function convertDiagnosticToRepairQuote(
     : 0;
 
   try {
-    await prisma.workOrder.update({
-      where: { id: workOrderId },
+    await prisma.workOrder.updateMany({
+      where: { id: workOrderId, tenantId },
       data: {
         isDiagnostic: false,
         rollDiagnosticFee: params.rollDiagnosticFee,
@@ -166,9 +170,12 @@ export async function getDiagnosticTicketData(workOrderId: string): Promise<
     return { error: "Missing work order ID." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   try {
-    const workOrder = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
+    const workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
       select: {
         id: true,
         title: true,

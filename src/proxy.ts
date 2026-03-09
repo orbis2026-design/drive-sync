@@ -10,7 +10,10 @@ const PUBLIC_PREFIXES = [
   "/portal/",
   "/request/",
   "/glovebox/",
-  "/api/",
+  // "/api/" — REMOVED: API routes must not be blanket-public
+  "/api/stripe/webhook",   // Stripe webhooks use signature verification
+  "/api/cron/",            // Cron routes use their own Bearer token guards
+  "/api/lexicon/",         // Uses its own Bearer token guard
   "/onboarding",
   "/_next/",
   "/offline",

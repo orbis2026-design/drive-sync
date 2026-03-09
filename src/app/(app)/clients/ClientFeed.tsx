@@ -162,6 +162,7 @@ function VehicleRow({ vehicle }: { vehicle: VehicleData }) {
   function refreshBadges() {
     startTransition(async () => {
       const fresh = await checkMaintenanceDue(vehicle.id);
+      if (!Array.isArray(fresh)) return; // auth error — keep existing badges
       setBadges(fresh);
     });
   }

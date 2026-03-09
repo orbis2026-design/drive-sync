@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,12 +55,16 @@ export async function syncInspection(
     return { error: "Cannot sync inspection: work order ID is missing." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   const adminDb = createAdminClient();
 
   const { error } = await adminDb
     .from("work_orders")
     .update({ inspection_json: payload })
-    .eq("id", workOrderId);
+    .eq("id", workOrderId)
+    .eq("tenant_id", tenantId);
 
   if (error) {
     return { error: `Failed to sync inspection: ${error.message}` };
@@ -81,12 +86,16 @@ export async function saveVoiceNote(
     return { error: "Cannot save voice note: work order ID is missing." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   const adminDb = createAdminClient();
 
   const { error } = await adminDb
     .from("work_orders")
     .update({ voice_note_json: note })
-    .eq("id", workOrderId);
+    .eq("id", workOrderId)
+    .eq("tenant_id", tenantId);
 
   if (error) {
     return { error: `Failed to save voice note: ${error.message}` };
@@ -120,11 +129,16 @@ export async function saveChecklist(
   if (!workOrderId) {
     return { error: "Cannot save checklist: work order ID is missing." };
   }
+
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   const adminDb = createAdminClient();
   const { error } = await adminDb
     .from("work_orders")
     .update({ checklists_json: items })
-    .eq("id", workOrderId);
+    .eq("id", workOrderId)
+    .eq("tenant_id", tenantId);
   if (error) {
     return { error: `Failed to save checklist: ${error.message}` };
   }

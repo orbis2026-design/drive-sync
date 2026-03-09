@@ -3,6 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
 import { sendSMS } from "@/lib/twilio";
+import { getTenantId } from "@/lib/auth";
 import { TAX_RATE, DEFAULT_SHOP_RATE_CENTS } from "./constants";
 import { getDueServices, type DueService, formatMilesUntilDue } from "@/lib/predictive-service";
 import { MaintenanceScheduleSchema } from "@/lib/schemas/maintenance";
@@ -157,6 +158,9 @@ export async function getQuoteData(
     return { error: "Missing work order ID." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   let workOrder: {
     id: string;
     title: string;
@@ -172,8 +176,8 @@ export async function getQuoteData(
     } | null;
   } | null = null;
   try {
-    workOrder = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
+    workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
       select: {
         id: true,
         title: true,
@@ -279,6 +283,9 @@ export async function lockQuote(
     return { error: "Missing work order ID." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   const { laborHours, customerSuppliedParts } = params;
 
   if (
@@ -291,16 +298,14 @@ export async function lockQuote(
   }
 
   // --- Fetch authoritative data from the database -----------------------
-  let tenantId: string;
   try {
-    const workOrder = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
-      select: { tenantId: true },
+    const workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
+      select: { id: true },
     });
     if (!workOrder) {
       return { error: "Work order not found." };
     }
-    tenantId = workOrder.tenantId;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Database error.";
     return { error: message };
@@ -330,8 +335,8 @@ export async function lockQuote(
 
   // --- Persist to WorkOrder --------------------------------------------
   try {
-    await prisma.workOrder.update({
-      where: { id: workOrderId },
+    await prisma.workOrder.updateMany({
+      where: { id: workOrderId, tenantId },
       data: {
         laborCents: laborSubtotalCents,
         partsCents: partsSubtotalCents,
@@ -375,6 +380,9 @@ export async function getSendPageData(
     return { error: "Missing work order ID." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   let workOrder: {
     id: string;
     title: string;
@@ -388,8 +396,8 @@ export async function getSendPageData(
   } | null = null;
 
   try {
-    workOrder = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
+    workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
       select: {
         id: true,
         title: true,
@@ -460,19 +468,24 @@ export async function sendQuote(
     return { error: "Missing work order ID." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   // --- Fetch WorkOrder + client data -----------------------------------
   let workOrder: {
     status: string;
     title: string;
+    approvalToken: string | null;
     client: { firstName: string; lastName: string; phone: string };
   } | null = null;
 
   try {
-    workOrder = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
+    workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
       select: {
         status: true,
         title: true,
+        approvalToken: true,
         client: { select: { firstName: true, lastName: true, phone: true } },
       },
     });
@@ -487,19 +500,8 @@ export async function sendQuote(
 
   if (workOrder.status === "PENDING_APPROVAL") {
     // Already sent — treat as a success to allow retries from the UI.
-    // Fetch the existing token to rebuild the portal URL.
-    let existingToken: string | null = null;
-    try {
-      const existing = await prisma.workOrder.findUnique({
-        where: { id: workOrderId },
-        select: { approvalToken: true, client: { select: { phone: true } } },
-      });
-      existingToken = existing?.approvalToken ?? null;
-    } catch {
-      // Best-effort; proceed without the URL.
-    }
-    const portalUrl = existingToken
-      ? `${PORTAL_BASE_URL}/portal/${existingToken}`
+    const portalUrl = workOrder.approvalToken
+      ? `${PORTAL_BASE_URL}/portal/${workOrder.approvalToken}`
       : `${PORTAL_BASE_URL}/portal/`;
     const smsBody =
       `Your mechanic has finished diagnosing your vehicle. ` +
@@ -519,8 +521,8 @@ export async function sendQuote(
 
   // --- Persist token + status transition via Prisma --------------------
   try {
-    await prisma.workOrder.update({
-      where: { id: workOrderId },
+    await prisma.workOrder.updateMany({
+      where: { id: workOrderId, tenantId },
       data: {
         status: "PENDING_APPROVAL",
         approvalToken: token,
@@ -605,6 +607,9 @@ export async function submitChangeOrder(
     return { error: "Missing work order ID." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   // --- Validate input with Zod -------------------------------------------
   const parseResult = DeltaPartsArraySchema.safeParse(rawDeltaParts);
   if (!parseResult.success) {
@@ -617,15 +622,17 @@ export async function submitChangeOrder(
   let workOrder: {
     status: string;
     title: string;
+    deltaApprovalToken: string | null;
     client: { firstName: string; lastName: string; phone: string };
   } | null = null;
 
   try {
-    workOrder = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
+    workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
       select: {
         status: true,
         title: true,
+        deltaApprovalToken: true,
         client: { select: { firstName: true, lastName: true, phone: true } },
       },
     });
@@ -640,21 +647,13 @@ export async function submitChangeOrder(
 
   // Idempotency: already blocked — return existing portal URL.
   if (workOrder.status === "BLOCKED_WAITING_APPROVAL") {
-    try {
-      const existing = await prisma.workOrder.findUnique({
-        where: { id: workOrderId },
-        select: { deltaApprovalToken: true },
-      });
-      const token = existing?.deltaApprovalToken ?? "";
-      return {
-        success: true,
-        portalUrl: token
-          ? `${PORTAL_BASE_URL}/portal/change-order/${token}`
-          : `${PORTAL_BASE_URL}/portal/`,
-      };
-    } catch {
-      // Fall through to regenerate.
-    }
+    const token = workOrder.deltaApprovalToken ?? "";
+    return {
+      success: true,
+      portalUrl: token
+        ? `${PORTAL_BASE_URL}/portal/change-order/${token}`
+        : `${PORTAL_BASE_URL}/portal/`,
+    };
   }
 
   // --- Generate secure delta approval token ------------------------------
@@ -662,8 +661,8 @@ export async function submitChangeOrder(
 
   // --- Persist via Prisma ------------------------------------------------
   try {
-    await prisma.workOrder.update({
-      where: { id: workOrderId },
+    await prisma.workOrder.updateMany({
+      where: { id: workOrderId, tenantId },
       data: {
         deltaPartsJson: deltaParts,
         deltaApprovalToken: deltaToken,
@@ -725,6 +724,9 @@ export async function submitSupplementalChangeOrder(
     return { error: "Missing work order ID." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   // --- Validate parts -------------------------------------------------
   const partsResult = z.array(DeltaPartSchema).safeParse(rawDeltaParts);
   if (!partsResult.success) {
@@ -747,15 +749,17 @@ export async function submitSupplementalChangeOrder(
   let workOrder: {
     status: string;
     title: string;
+    deltaApprovalToken: string | null;
     client: { firstName: string; lastName: string; phone: string };
   } | null = null;
 
   try {
-    workOrder = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
+    workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
       select: {
         status: true,
         title: true,
+        deltaApprovalToken: true,
         client: { select: { firstName: true, lastName: true, phone: true } },
       },
     });
@@ -770,11 +774,7 @@ export async function submitSupplementalChangeOrder(
 
   // Idempotency: already blocked — return success.
   if (workOrder.status === "BLOCKED_WAITING_APPROVAL") {
-    const existing = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
-      select: { deltaApprovalToken: true },
-    }).catch(() => null);
-    const token = existing?.deltaApprovalToken ?? "";
+    const token = workOrder.deltaApprovalToken ?? "";
     return {
       success: true,
       portalUrl: token
@@ -793,8 +793,8 @@ export async function submitSupplementalChangeOrder(
 
   // --- Persist via Prisma --------------------------------------------
   try {
-    await prisma.workOrder.update({
-      where: { id: workOrderId },
+    await prisma.workOrder.updateMany({
+      where: { id: workOrderId, tenantId },
       data: {
         deltaPartsJson: deltaPayload,
         deltaApprovalToken: deltaToken,
