@@ -146,7 +146,10 @@ export async function getQboChartOfAccounts(): Promise<
     .single();
 
   if (!tenant?.qbo_access_token || !tenant?.qbo_realm_id) {
-    // Return mock data when QBO is not connected
+    // Not connected — return empty list in production, mock data in dev/test
+    if (process.env.NODE_ENV === "production") {
+      return { error: "QuickBooks is not connected. Connect via Settings → Integrations." };
+    }
     return MOCK_ACCOUNTS;
   }
 
@@ -163,7 +166,12 @@ export async function getQboChartOfAccounts(): Promise<
         },
       },
     );
-    if (!res.ok) return MOCK_ACCOUNTS;
+    if (!res.ok) {
+      if (process.env.NODE_ENV === "production") {
+        return { error: `QBO API returned HTTP ${res.status}. Re-authenticate via Settings → Integrations.` };
+      }
+      return MOCK_ACCOUNTS;
+    }
     const body = await res.json();
     const accounts: ChartOfAccountsEntry[] = (
       body?.QueryResponse?.Account ?? []
@@ -174,12 +182,20 @@ export async function getQboChartOfAccounts(): Promise<
         accountType: a.AccountType,
       }),
     );
-    return accounts.length > 0 ? accounts : MOCK_ACCOUNTS;
+    return accounts.length > 0 ? accounts : (
+      process.env.NODE_ENV === "production"
+        ? { error: "No income/liability accounts found in QuickBooks." }
+        : MOCK_ACCOUNTS
+    );
   } catch {
+    if (process.env.NODE_ENV === "production") {
+      return { error: "Failed to fetch QuickBooks chart of accounts." };
+    }
     return MOCK_ACCOUNTS;
   }
 }
 
+/** Dev / test fallback accounts — never returned in production. */
 const MOCK_ACCOUNTS: ChartOfAccountsEntry[] = [
   { id: "1", name: "Labor Revenue", accountType: "Income" },
   { id: "2", name: "Parts Revenue", accountType: "Income" },
@@ -236,8 +252,11 @@ export async function syncPaidWorkOrders(
       take: 25,
       orderBy: { closedAt: "desc" },
     });
-  } catch {
-    // Demo fallback — simulate 3 synced invoices
+  } catch (err) {
+    if (process.env.NODE_ENV === "production") {
+      return { error: `Failed to query paid work orders: ${err instanceof Error ? err.message : "Unknown error"}` };
+    }
+    // Dev / test fallback — simulate 3 synced invoices
     return {
       synced: 3,
       failed: 0,
@@ -290,7 +309,10 @@ export async function syncPaidWorkOrders(
     };
 
     if (!tenant?.qbo_access_token || !tenant?.qbo_realm_id) {
-      // Demo mode — simulate success
+      if (process.env.NODE_ENV === "production") {
+        return { error: "QuickBooks is not connected. Cannot create invoices." };
+      }
+      // Dev / test — simulate success
       synced.push(`QBO-INV-DEMO-${wo.id.slice(-6)}`);
       continue;
     }

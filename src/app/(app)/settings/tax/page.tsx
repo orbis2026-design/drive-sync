@@ -25,8 +25,14 @@ import {
 import { saveTaxMatrix, saveTaxSettings } from "./actions";
 
 // ---------------------------------------------------------------------------
-// US state tax presets
-// Auto-repair sales tax data sourced from state revenue codes.
+// US state tax presets — curated reference data
+//
+// These are **not mock data**. They are static tax-rate presets sourced from
+// published state revenue codes and standard environmental-fee schedules.
+// The mechanic selects their state and the preset populates the form fields,
+// which they can then adjust before saving. The saved values (in the tenant's
+// `tax_matrix_json`) are what the math engine uses at quote time.
+//
 // labor_tax_rate: labor is non-taxable in most US states (0.00).
 // parts_tax_rate: parts/materials sales tax rate.
 // environmental_fee_flat: typical hazardous-waste disposal fee (USD).

@@ -127,3 +127,74 @@ The app will be available at http://localhost:3000.
 npx supabase db push
 npm run test:e2e
 ```
+
+---
+
+## Production Deployment
+
+### Required Environment Variables
+
+The following variables **must** be set in production (`NODE_ENV=production`).
+The application will refuse to start or will return errors if any required
+integration is missing.
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Supabase admin key for RLS-bypassing operations |
+| `SUPPLIER_API_BASE_URL` | ✅ | Nexpart / Epicor parts supplier REST API base URL |
+| `SUPPLIER_CLIENT_ID` | ✅ | Supplier OAuth client ID |
+| `SUPPLIER_CLIENT_SECRET` | ✅ | Supplier OAuth client secret |
+| `SUPPLIER_API_KEY` | ✅ | Supplier API key |
+| `STRIPE_SECRET_KEY` | ✅ | Stripe secret key for invoicing and payments |
+| `TWILIO_ACCOUNT_SID` | ✅ | Twilio SID for SMS and voice |
+| `TWILIO_AUTH_TOKEN` | ✅ | Twilio auth token |
+| `OPENAI_API_KEY` | ✅ | OpenAI API key for AI vision and diagnostics |
+| `NEXT_PUBLIC_PORTAL_BASE_URL` | ✅ | Public URL for client-facing portal links |
+| `QBO_CLIENT_ID` | Optional | QuickBooks OAuth client ID (required for QBO sync) |
+| `QBO_REDIRECT_URI` | Optional | QuickBooks OAuth redirect URI |
+| `CARMD_API_KEY` | Optional | CarMD API key for real labor estimates (falls back to lexicon data) |
+| `PARTS_CATALOG_API_URL` | Optional | Catalog provider URL for quick-specs lookups |
+| `PARTS_CATALOG_API_KEY` | Optional | Catalog provider API key |
+| `NEXT_PUBLIC_3D_MODEL_URL` | Optional | URL or path to bundled 3D vehicle model (defaults to `/models/car.glb`) |
+
+### Production Gating
+
+All mock data, demo credentials, and simulated integrations are **gated behind
+`NODE_ENV !== 'production'`**. In production:
+
+- **Parts supplier API** (`supplier-api.ts`): Throws at import time if
+  credentials are missing. Makes real OAuth + REST calls to the supplier.
+- **Parts bridge** (`parts-bridge.ts`): Throws `PartsBridgeError` instead of
+  returning dev fallback tokens or mock catalogue results.
+- **Parts catalog** (`parts-catalog.ts`): Throws if `PARTS_CATALOG_API_URL` is
+  not set. Calls the real catalog API otherwise.
+- **Labor engine** (`labor-engine.ts`): Uses real CarMD API when
+  `CARMD_API_KEY` is configured. Returns `source: 'none'` in production
+  without the key (no silent fallback to static estimates).
+- **QuickBooks** (`qbo/actions.ts`): Returns descriptive error messages instead
+  of mock accounts. Demo invoice IDs are never generated.
+- **Voice logger** (`voice-logger-fab.tsx`): Uses the real Web Speech API for
+  browser-based speech-to-text. Falls back gracefully when the API is
+  unavailable (user can type manually).
+- **Glovebox receipts** (`GloveboxClient.tsx`): Calls the PDF generation API.
+  Falls back to text receipt only if the API endpoint is unreachable.
+- **3D vehicle viewer** (`3d-vehicle-viewer.tsx`): Uses
+  `NEXT_PUBLIC_3D_MODEL_URL` or the bundled `/models/car.glb` path in
+  production. External CDN demo models are only used in development.
+- **SMS preview** (`QuoteSendClient.tsx`): Shows a masked token placeholder
+  (`••••••••-••••-…`) instead of a fake UUID.
+- **Marketing hero** (`HeroSection.tsx`): Uses illustrative dashboard data
+  (intentional marketing content — not operational mock data).
+- **Tax presets** (`settings/tax/page.tsx`): Curated US state tax reference
+  data sourced from published revenue codes (not mock data).
+
+### Self-Hosting Checklist
+
+1. Set all required environment variables (see table above).
+2. Run `npx prisma generate && npm run build`.
+3. Verify the build succeeds without errors.
+4. Configure QuickBooks OAuth if accounting sync is needed.
+5. Place a bundled 3D model at `public/models/car.glb` or set
+   `NEXT_PUBLIC_3D_MODEL_URL`.
+6. Run `npm start` to launch the production server.

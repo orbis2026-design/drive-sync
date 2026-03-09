@@ -466,7 +466,13 @@ export class PartsBridgeAdapter {
       return accessToken;
     }
 
-    // --- Dev fallback (no real credentials configured) ----------------------
+    // --- Dev / test fallback (no real credentials configured) ----------------
+    if (process.env.NODE_ENV === "production") {
+      throw new PartsBridgeError(
+        "UNAUTHORIZED",
+        "No supplier credentials configured. Set supplier_credentials_json on the tenant record.",
+      );
+    }
     const devToken: CachedToken = {
       accessToken: `dev-bridge-token-${now}`,
       expiresAt: now + 3_600_000,
@@ -602,7 +608,13 @@ export class PartsBridgeAdapter {
       }));
     }
 
-    // --- Mock implementation (no live credentials configured) ---------------
+    // --- Dev / test mock (no live credentials configured) -------------------
+    if (process.env.NODE_ENV === "production") {
+      throw new PartsBridgeError(
+        "UNAUTHORIZED",
+        "No supplier credentials configured for production parts search.",
+      );
+    }
     const { year, make } = parseVin(vin);
     const queryLower = query.toLowerCase().trim();
 

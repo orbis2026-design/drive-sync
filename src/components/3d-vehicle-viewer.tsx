@@ -82,12 +82,16 @@ function resolveMpiKey(meshName: string): keyof MpiData | null {
 }
 
 // ---------------------------------------------------------------------------
-// Placeholder car GLTF URL
-// Replace with a bundled asset (public/models/car.glb) in production.
+// Car GLTF URL — configurable via environment variable
+// In production set NEXT_PUBLIC_3D_MODEL_URL to a bundled asset or CDN path.
+// Falls back to a public Three.js demo model in dev / test.
 // ---------------------------------------------------------------------------
 
 const GLTF_URL =
-  "https://threejs.org/examples/models/gltf/ferrari.glb";
+  process.env.NEXT_PUBLIC_3D_MODEL_URL ??
+  (process.env.NODE_ENV === "production"
+    ? "/models/car.glb"
+    : "https://threejs.org/examples/models/gltf/ferrari.glb");
 
 // ---------------------------------------------------------------------------
 // CarModel — loads GLTF and applies MPI materials

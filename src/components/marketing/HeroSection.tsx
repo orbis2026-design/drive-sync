@@ -6,13 +6,20 @@
  * CTA: "Start 14-Day Free Trial"
  *
  * Mobile: centered vertical layout.
- * Desktop (lg:): split layout — text/CTA left (60%), mock dashboard right (40%).
+ * Desktop (lg:): split layout — text/CTA left (60%), dashboard graphic right (40%).
+ *
+ * Note: The revenue bars and metrics below are **intentional marketing
+ * illustration data** for the public landing page. They do not represent
+ * real user data and are not a mock/placeholder that needs replacement.
  */
 
 import Link from "next/link";
 
-/** Mock weekly revenue bar heights (% of max) for the dashboard graphic. */
-const MOCK_REVENUE_BARS = [40, 65, 50, 80, 55, 90, 75, 95];
+/**
+ * Illustrative weekly revenue bar heights (% of max) for the marketing
+ * dashboard graphic. This is static design content, not operational mock data.
+ */
+const DEMO_REVENUE_BARS = [40, 65, 50, 80, 55, 90, 75, 95];
 
 export function HeroSection() {
   return (
@@ -113,7 +120,7 @@ export function HeroSection() {
               Weekly Revenue
             </p>
             <div className="flex items-end gap-1.5 h-16">
-              {MOCK_REVENUE_BARS.map((h, i) => (
+              {DEMO_REVENUE_BARS.map((h, i) => (
                 <div
                   key={i}
                   className="flex-1 rounded-sm bg-gradient-to-t from-red-600 to-red-400 opacity-80"

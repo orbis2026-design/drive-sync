@@ -8,6 +8,7 @@ import {
   type PartOption,
   type QuickSpecsKitItem,
 } from "@/lib/parts-catalog";
+import { addQuickSpecsKitToWorkOrder } from "./actions";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -124,16 +125,13 @@ function AddKitToQuoteButton({ kit, workOrderId }: AddKitToQuoteButtonProps) {
     setError(null);
 
     try {
-      // In production, call a server action to insert these parts into the
-      // work order's parts_json. For the prototype, we simulate success.
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      const result = await addQuickSpecsKitToWorkOrder(workOrderId, kit);
 
-      // TODO: replace with real server action:
-      // await addQuickSpecsKitToWorkOrder(workOrderId, kit);
-      void workOrderId; // suppress unused var warning until real action wired up
-      void kit;
-
-      setAdded(true);
+      if (result.error) {
+        setError(result.error);
+      } else {
+        setAdded(true);
+      }
     } catch {
       setError("Failed to add kit. Please try again.");
     } finally {

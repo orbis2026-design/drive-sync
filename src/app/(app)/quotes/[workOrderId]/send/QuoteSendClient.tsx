@@ -151,7 +151,9 @@ interface SMSPreviewCardProps {
 function SMSPreviewCard({ clientName }: SMSPreviewCardProps) {
   const portalBaseUrl =
     process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? "https://app.domain.com";
-  const previewToken = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx";
+  // Display a masked token in the preview — the real token is generated
+  // server-side when the SMS is actually sent.
+  const previewToken = "••••••••-••••-••••-••••-••••••••••••";
   const previewUrl = `${portalBaseUrl}/portal/${previewToken}`;
   const previewBody =
     `Your mechanic has finished diagnosing your vehicle. ` +
@@ -174,7 +176,7 @@ function SMSPreviewCard({ clientName }: SMSPreviewCardProps) {
         </span>
       </div>
 
-      {/* Simulated SMS bubble */}
+      {/* SMS message bubble preview */}
       <div className="flex justify-end">
         <div
           className={[

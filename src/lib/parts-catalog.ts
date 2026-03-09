@@ -1,11 +1,12 @@
 /**
- * parts-catalog.ts — Mock parts catalog lookup utility
+ * parts-catalog.ts — Parts catalog lookup utility
  *
- * Simulates queries to an automotive parts catalog (e.g. Epicor, AutoZone B2B)
- * to retrieve compatible OEM and aftermarket part numbers for a given vehicle.
+ * In production (`NODE_ENV=production`) the `PARTS_CATALOG_API_URL`
+ * environment variable must point at a real catalog provider (e.g. Epicor,
+ * AutoZone B2B). The module will throw at call time if the variable is absent.
  *
- * In production, replace the mock functions with real API calls to the
- * preferred catalog provider.
+ * In development / test the embedded mock data enables full UI exercising
+ * without a live catalog account.
  */
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,16 @@ export interface QuickSpecsKitItem {
 }
 
 // ---------------------------------------------------------------------------
-// Mock catalog data
+// Environment
+// ---------------------------------------------------------------------------
+
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const CATALOG_API_URL = process.env.PARTS_CATALOG_API_URL ?? "";
+const CATALOG_API_KEY = process.env.PARTS_CATALOG_API_KEY ?? "";
+const HAS_REAL_CATALOG = CATALOG_API_URL !== "";
+
+// ---------------------------------------------------------------------------
+// Mock catalog data — dev / test only (gated by HAS_REAL_CATALOG)
 // ---------------------------------------------------------------------------
 
 // Oil filter cross-reference by make
@@ -180,13 +190,45 @@ function wiperOptionsForSize(driverSize: string, passengerSize: string): PartOpt
 
 /**
  * Fetches compatible part numbers for the given vehicle.
- * Simulates a catalog API call — replace with real integration in production.
+ *
+ * In production, calls the real catalog API. In dev / test, returns mock data.
  */
 export async function lookupQuickSpecs(
   input: QuickSpecsInput,
 ): Promise<QuickSpecsResult> {
-  // Simulate network latency
-  await new Promise((resolve) => setTimeout(resolve, 350));
+  if (HAS_REAL_CATALOG) {
+    // --- Real catalog API call -----------------------------------------------
+    const params = new URLSearchParams({
+      year: String(input.year),
+      make: input.make,
+      model: input.model,
+    });
+    if (input.engine) params.set("engine", input.engine);
+    if (input.trim) params.set("trim", input.trim);
+
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (CATALOG_API_KEY) headers["X-Api-Key"] = CATALOG_API_KEY;
+
+    const res = await fetch(
+      `${CATALOG_API_URL}/quick-specs?${params.toString()}`,
+      { headers },
+    );
+
+    if (!res.ok) {
+      throw new Error(`Catalog API error: HTTP ${res.status}`);
+    }
+
+    return (await res.json()) as QuickSpecsResult;
+  }
+
+  if (IS_PRODUCTION) {
+    throw new Error(
+      "[parts-catalog] Production requires PARTS_CATALOG_API_URL. " +
+        "Set this environment variable to a real catalog provider endpoint.",
+    );
+  }
+
+  // --- Dev / test mock data ------------------------------------------------
 
   const { make, model } = input;
 
