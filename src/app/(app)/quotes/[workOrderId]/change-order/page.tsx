@@ -2,6 +2,7 @@
 
 import { use, useState, useTransition } from "react";
 import Link from "next/link";
+import { submitChangeOrder } from "../actions";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -356,12 +357,11 @@ export default function ChangeOrderPage({
 
     startSubmitTransition(async () => {
       try {
-        // TODO: wire up a real server action that:
-        //   1. Writes delta_parts_json to the work order
-        //   2. Sets status to BLOCKED_WAITING_APPROVAL
-        //   3. Generates a new delta_approval_token
-        //   4. Sends an SMS to the client with the change order link
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        const result = await submitChangeOrder(workOrderId, deltaParts);
+        if ("error" in result) {
+          setSubmitError(result.error);
+          return;
+        }
         setCoState("SUBMITTED");
       } catch {
         setSubmitError(

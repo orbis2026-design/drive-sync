@@ -20,6 +20,7 @@
 
 import { use, useState, useTransition } from "react";
 import Link from "next/link";
+import { submitSupplementalChangeOrder } from "../actions";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -150,26 +151,15 @@ export default function SupplementalClient({
 
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/sync`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            workOrderId,
-            patch: {
-              // Note: the API sync route only allows notes/description through;
-              // in production this would be a dedicated server action.
-              notes: `[CHANGE ORDER] Delta parts: ${JSON.stringify(deltaParts)}, Delta labor: ${JSON.stringify(laborAdditions)}`,
-            },
-          }),
-        });
-
-        if (!res.ok && res.status !== 409) {
-          // A 409 on a locked contract is expected in demo mode; treat non-fatal.
-          // Any other non-success status indicates a genuine server error.
-          const body = await res.json().catch(() => ({})) as { error?: string };
-          throw new Error(body.error ?? `Server error: ${res.status}`);
+        const result = await submitSupplementalChangeOrder(
+          workOrderId,
+          deltaParts,
+          laborAdditions,
+        );
+        if ("error" in result) {
+          setError(result.error);
+          return;
         }
-
         setSubmitted(true);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to submit change order. Please try again.");

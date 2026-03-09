@@ -6,6 +6,14 @@ import { sendSMS } from "@/lib/twilio";
 import { TAX_RATE, DEFAULT_SHOP_RATE_CENTS } from "./constants";
 import { getDueServices, type DueService, formatMilesUntilDue } from "@/lib/predictive-service";
 import { MaintenanceScheduleSchema } from "@/lib/schemas/maintenance";
+import { z } from "zod";
+
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+const PORTAL_BASE_URL =
+  process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? "https://app.domain.com";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -490,11 +498,9 @@ export async function sendQuote(
     } catch {
       // Best-effort; proceed without the URL.
     }
-    const portalBaseUrl =
-      process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? "https://app.domain.com";
     const portalUrl = existingToken
-      ? `${portalBaseUrl}/portal/${existingToken}`
-      : `${portalBaseUrl}/portal/`;
+      ? `${PORTAL_BASE_URL}/portal/${existingToken}`
+      : `${PORTAL_BASE_URL}/portal/`;
     const smsBody =
       `Your mechanic has finished diagnosing your vehicle. ` +
       `Tap here to review and approve the repair quote: ${portalUrl}`;
@@ -538,9 +544,7 @@ export async function sendQuote(
   }
 
   // --- Send SMS via Twilio -------------------------------------------------
-  const portalBaseUrl =
-    process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? "https://app.domain.com";
-  const portalUrl = `${portalBaseUrl}/portal/${token}`;
+  const portalUrl = `${PORTAL_BASE_URL}/portal/${token}`;
   const smsBody =
     `Your mechanic has finished diagnosing your vehicle. ` +
     `Tap here to review and approve the repair quote: ${portalUrl}`;
@@ -551,4 +555,285 @@ export async function sendQuote(
   }
 
   return { success: true, portalUrl, smsBody };
+}
+
+// ---------------------------------------------------------------------------
+// Zod schemas for submitChangeOrder / submitSupplementalChangeOrder
+// ---------------------------------------------------------------------------
+
+/** A single delta part line-item as entered by the mechanic on the change-order page. */
+const DeltaPartSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1, "Part name is required.").max(256),
+  partNumber: z.string().min(1, "Part number is required.").max(64),
+  wholesalePriceCents: z.number().int().min(0),
+  retailPriceCents: z.number().int().min(0),
+  quantity: z.number().int().min(1, "Quantity must be at least 1."),
+  customerSupplied: z.boolean(),
+});
+
+const DeltaPartsArraySchema = z
+  .array(DeltaPartSchema)
+  .min(1, "At least one part or labour item is required.");
+
+/** A single labour addition for the supplemental change-order page. */
+const LaborAdditionSchema = z.object({
+  id: z.string().min(1),
+  description: z.string().min(1, "Labour description is required.").max(256),
+  hours: z.number().positive("Hours must be greater than zero."),
+  rateCents: z.number().int().min(0),
+});
+
+// ---------------------------------------------------------------------------
+// Server Action — submitChangeOrder
+// ---------------------------------------------------------------------------
+
+/**
+ * Persists a mechanic-authored change order and notifies the client via SMS.
+ *
+ *   1. Validates the input with Zod.
+ *   2. Verifies the work order exists (any non-locked status is acceptable).
+ *   3. Writes `deltaPartsJson` and transitions status to BLOCKED_WAITING_APPROVAL.
+ *   4. Generates a cryptographically secure `deltaApprovalToken`.
+ *   5. Sends the client an SMS with a portal link for the delta change order.
+ */
+export async function submitChangeOrder(
+  workOrderId: string,
+  rawDeltaParts: unknown,
+): Promise<{ success: true; portalUrl: string } | { error: string }> {
+  if (!workOrderId) {
+    return { error: "Missing work order ID." };
+  }
+
+  // --- Validate input with Zod -------------------------------------------
+  const parseResult = DeltaPartsArraySchema.safeParse(rawDeltaParts);
+  if (!parseResult.success) {
+    const firstIssue = parseResult.error.issues[0];
+    return { error: firstIssue?.message ?? "Invalid change order data." };
+  }
+  const deltaParts = parseResult.data;
+
+  // --- Fetch the work order + client data --------------------------------
+  let workOrder: {
+    status: string;
+    title: string;
+    client: { firstName: string; lastName: string; phone: string };
+  } | null = null;
+
+  try {
+    workOrder = await prisma.workOrder.findUnique({
+      where: { id: workOrderId },
+      select: {
+        status: true,
+        title: true,
+        client: { select: { firstName: true, lastName: true, phone: true } },
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Database error.";
+    return { error: message };
+  }
+
+  if (!workOrder) {
+    return { error: "Work order not found." };
+  }
+
+  // Idempotency: already blocked — return existing portal URL.
+  if (workOrder.status === "BLOCKED_WAITING_APPROVAL") {
+    try {
+      const existing = await prisma.workOrder.findUnique({
+        where: { id: workOrderId },
+        select: { deltaApprovalToken: true },
+      });
+      const token = existing?.deltaApprovalToken ?? "";
+      return {
+        success: true,
+        portalUrl: token
+          ? `${PORTAL_BASE_URL}/portal/change-order/${token}`
+          : `${PORTAL_BASE_URL}/portal/`,
+      };
+    } catch {
+      // Fall through to regenerate.
+    }
+  }
+
+  // --- Generate secure delta approval token ------------------------------
+  const deltaToken = crypto.randomUUID();
+
+  // --- Persist via Prisma ------------------------------------------------
+  try {
+    await prisma.workOrder.update({
+      where: { id: workOrderId },
+      data: {
+        deltaPartsJson: deltaParts,
+        deltaApprovalToken: deltaToken,
+        status: "BLOCKED_WAITING_APPROVAL",
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error.";
+    return { error: `Failed to save change order: ${message}` };
+  }
+
+  // --- Mirror update to Supabase work_orders (best-effort) ---------------
+  try {
+    const adminDb = createAdminClient();
+    await adminDb
+      .from("work_orders")
+      .update({
+        delta_parts_json: deltaParts,
+        delta_approval_token: deltaToken,
+        status: "BLOCKED_WAITING_APPROVAL",
+      })
+      .eq("id", workOrderId);
+  } catch {
+    // Non-fatal — Prisma write succeeded.
+  }
+
+  // --- Send SMS via Twilio -----------------------------------------------
+  const portalUrl = `${PORTAL_BASE_URL}/portal/change-order/${deltaToken}`;
+  const smsBody =
+    `URGENT: Your mechanic has discovered additional work required on your ` +
+    `${workOrder.title}. Tap here to review and approve the change order: ${portalUrl}`;
+
+  const smsResult = await sendSMS(workOrder.client.phone, smsBody);
+  if (!smsResult.success) {
+    console.error("[submitChangeOrder] SMS delivery failed:", smsResult.error);
+  }
+
+  return { success: true, portalUrl };
+}
+
+// ---------------------------------------------------------------------------
+// Server Action — submitSupplementalChangeOrder
+// ---------------------------------------------------------------------------
+
+/**
+ * Persists a supplemental ("broken bolt") change order raised mid-repair.
+ *
+ *   1. Validates delta parts and labour additions with Zod.
+ *   2. Merges them into a single `deltaPartsJson` blob.
+ *   3. Sets status to BLOCKED_WAITING_APPROVAL and generates deltaApprovalToken.
+ *   4. Sends the client an urgent SMS with a portal review link.
+ */
+export async function submitSupplementalChangeOrder(
+  workOrderId: string,
+  rawDeltaParts: unknown,
+  rawLaborAdditions: unknown,
+): Promise<{ success: true; portalUrl: string } | { error: string }> {
+  if (!workOrderId) {
+    return { error: "Missing work order ID." };
+  }
+
+  // --- Validate parts -------------------------------------------------
+  const partsResult = z.array(DeltaPartSchema).safeParse(rawDeltaParts);
+  if (!partsResult.success) {
+    const firstIssue = partsResult.error.issues[0];
+    return { error: firstIssue?.message ?? "Invalid delta parts." };
+  }
+
+  // --- Validate labour additions --------------------------------------
+  const laborResult = z.array(LaborAdditionSchema).safeParse(rawLaborAdditions);
+  if (!laborResult.success) {
+    const firstIssue = laborResult.error.issues[0];
+    return { error: firstIssue?.message ?? "Invalid labour additions." };
+  }
+
+  if (partsResult.data.length === 0 && laborResult.data.length === 0) {
+    return { error: "Add at least one part or labour item before submitting." };
+  }
+
+  // --- Fetch the work order + client data ----------------------------
+  let workOrder: {
+    status: string;
+    title: string;
+    client: { firstName: string; lastName: string; phone: string };
+  } | null = null;
+
+  try {
+    workOrder = await prisma.workOrder.findUnique({
+      where: { id: workOrderId },
+      select: {
+        status: true,
+        title: true,
+        client: { select: { firstName: true, lastName: true, phone: true } },
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Database error.";
+    return { error: message };
+  }
+
+  if (!workOrder) {
+    return { error: "Work order not found." };
+  }
+
+  // Idempotency: already blocked — return success.
+  if (workOrder.status === "BLOCKED_WAITING_APPROVAL") {
+    const existing = await prisma.workOrder.findUnique({
+      where: { id: workOrderId },
+      select: { deltaApprovalToken: true },
+    }).catch(() => null);
+    const token = existing?.deltaApprovalToken ?? "";
+    return {
+      success: true,
+      portalUrl: token
+        ? `${PORTAL_BASE_URL}/portal/change-order/${token}`
+        : `${PORTAL_BASE_URL}/portal/`,
+    };
+  }
+
+  const deltaToken = crypto.randomUUID();
+
+  // Combine parts and labour into a unified JSON blob.
+  const deltaPayload = {
+    parts: partsResult.data,
+    laborAdditions: laborResult.data,
+  };
+
+  // --- Persist via Prisma --------------------------------------------
+  try {
+    await prisma.workOrder.update({
+      where: { id: workOrderId },
+      data: {
+        deltaPartsJson: deltaPayload,
+        deltaApprovalToken: deltaToken,
+        status: "BLOCKED_WAITING_APPROVAL",
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error.";
+    return { error: `Failed to save supplemental change order: ${message}` };
+  }
+
+  // --- Mirror to Supabase (best-effort) ------------------------------
+  try {
+    const adminDb = createAdminClient();
+    await adminDb
+      .from("work_orders")
+      .update({
+        delta_parts_json: deltaPayload,
+        delta_approval_token: deltaToken,
+        status: "BLOCKED_WAITING_APPROVAL",
+      })
+      .eq("id", workOrderId);
+  } catch {
+    // Non-fatal.
+  }
+
+  // --- Send urgent SMS via Twilio -----------------------------------
+  const portalUrl = `${PORTAL_BASE_URL}/portal/change-order/${deltaToken}`;
+  const smsBody =
+    `URGENT: Your mechanic discovered a secondary issue mid-repair on your ` +
+    `${workOrder.title}. Additional work requires your sign-off. Tap to review: ${portalUrl}`;
+
+  const smsResult = await sendSMS(workOrder.client.phone, smsBody);
+  if (!smsResult.success) {
+    console.error(
+      "[submitSupplementalChangeOrder] SMS delivery failed:",
+      smsResult.error,
+    );
+  }
+
+  return { success: true, portalUrl };
 }
