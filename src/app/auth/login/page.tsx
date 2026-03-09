@@ -12,6 +12,15 @@ import {
 
 type Mode = "login" | "register-passkey";
 
+/**
+ * Brief pause (ms) after a successful sign-in before triggering a hard
+ * navigation.  @supabase/ssr writes session cookies synchronously in the
+ * SDK callback, but the browser may flush cookie storage slightly after the
+ * Promise resolves.  This small delay ensures the middleware's cookie check
+ * on the next request finds a valid session.
+ */
+const SESSION_COOKIE_WRITE_DELAY_MS = 300;
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function LoginPage() {
@@ -32,7 +41,9 @@ export default function LoginPage() {
     if (result.success) {
       setStatus("success");
       setMessage("Authenticated! Redirecting…");
-      // In a full implementation, redirect to the app
+      // Brief pause to ensure @supabase/ssr has fully written the session
+      // cookies before the hard navigation triggers the middleware check.
+      await new Promise((resolve) => setTimeout(resolve, SESSION_COOKIE_WRITE_DELAY_MS));
       window.location.href = "/jobs";
     } else {
       setStatus("error");
@@ -48,6 +59,9 @@ export default function LoginPage() {
     if (result.success) {
       setStatus("success");
       setMessage("Authenticated! Redirecting…");
+      // Brief pause to ensure @supabase/ssr has fully written the session
+      // cookies before the hard navigation triggers the middleware check.
+      await new Promise((resolve) => setTimeout(resolve, SESSION_COOKIE_WRITE_DELAY_MS));
       window.location.href = "/jobs";
     } else {
       setStatus("error");

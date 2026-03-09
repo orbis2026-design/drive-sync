@@ -145,7 +145,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const admin = createAdminClient();
   const { data: passkey, error: dbError } = await admin
     .from("user_passkeys")
-    .select("public_key_der, credential_id")
+    .select("public_key_der, credential_id, user_id")
     .eq("credential_id", credentialId)
     .maybeSingle();
 
@@ -204,5 +204,47 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ verified: false }, { status: 200 });
   }
 
-  return NextResponse.json({ verified });
+  if (!verified) {
+    return NextResponse.json({ verified: false }, { status: 200 });
+  }
+
+  // --- Issue a Supabase session for the verified user ----------------------
+  // Look up the user's email so we can generate a magic-link token.
+  // The client will exchange this token_hash for a real session via
+  // supabase.auth.verifyOtp(), which causes @supabase/ssr to write the
+  // session cookies that the middleware (proxy.ts) requires.
+  const userId = passkey.user_id as string;
+
+  const { data: userData, error: userError } =
+    await admin.auth.admin.getUserById(userId);
+
+  if (userError || !userData?.user?.email) {
+    console.error("[webauthn] Failed to fetch user for session:", userError);
+    return NextResponse.json(
+      { error: "Failed to create session." },
+      { status: 500 },
+    );
+  }
+
+  const { data: linkData, error: linkError } =
+    await admin.auth.admin.generateLink({
+      type: "magiclink",
+      email: userData.user.email,
+    });
+
+  if (linkError || !linkData?.properties?.hashed_token) {
+    console.error("[webauthn] Failed to generate session link:", linkError);
+    return NextResponse.json(
+      { error: "Failed to create session." },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({
+    verified: true,
+    session: {
+      token_hash: linkData.properties.hashed_token,
+      email: userData.user.email,
+    },
+  });
 }
