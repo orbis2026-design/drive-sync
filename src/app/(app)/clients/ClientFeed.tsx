@@ -409,11 +409,19 @@ function EmptyState({ hasQuery }: { hasQuery: boolean }) {
       <p className="text-2xl font-bold text-white mb-2">
         {hasQuery ? "No clients matched" : "No clients yet"}
       </p>
-      <p className="text-lg text-gray-400">
+      <p className="text-lg text-gray-400 mb-8">
         {hasQuery
           ? "Try a different name, phone number, or plate."
-          : "Add your first client to get started."}
+          : "Your first client will appear here when you create a work order."}
       </p>
+      {!hasQuery && (
+        <Link
+          href="/intake"
+          className="px-6 py-3 rounded-2xl bg-brand-400 text-gray-950 font-bold text-sm hover:bg-brand-300 active:scale-95 transition-all"
+        >
+          + New Intake
+        </Link>
+      )}
     </div>
   );
 }
