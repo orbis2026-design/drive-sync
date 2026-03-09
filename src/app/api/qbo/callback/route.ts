@@ -97,18 +97,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    let accessToken: string;
-    let refreshToken: string;
-
     if (!QBO_CLIENT_ID || !QBO_CLIENT_SECRET) {
-      // Demo mode — use placeholder tokens so the UI shows "connected"
-      accessToken = `demo-qbo-access-${Date.now()}`;
-      refreshToken = `demo-qbo-refresh-${Date.now()}`;
-    } else {
-      const tokens = await exchangeCodeForTokens(code);
-      accessToken = tokens.access_token;
-      refreshToken = tokens.refresh_token;
+      return NextResponse.redirect(
+        new URL("/accounting/qbo?error=qbo_not_configured", req.url),
+      );
     }
+
+    const tokens = await exchangeCodeForTokens(code);
+    const accessToken = tokens.access_token;
+    const refreshToken = tokens.refresh_token;
 
     // Resolve the tenant from the authenticated session
     const tenantId = await getTenantId();

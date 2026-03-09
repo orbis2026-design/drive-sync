@@ -19,6 +19,7 @@
  */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { z } from "zod";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -97,6 +98,12 @@ const CARMD_ESTIMATES: Array<{ keywords: string[]; hours: number }> = [
   { keywords: ["inspection", "diagnostic", "scan"], hours: 1.0 },
 ];
 
+const CarMdLaborResponseSchema = z.object({
+  data: z.object({
+    labor_hours: z.number(),
+  }),
+});
+
 /**
  * Returns a CarMD labor estimate for the given service type string.
  *
@@ -117,12 +124,12 @@ async function getCarMdEstimate(serviceType: string): Promise<number | null> {
         },
       );
       if (res.ok) {
-        const body = (await res.json()) as {
-          data?: { labor_hours?: number };
-        };
-        if (typeof body?.data?.labor_hours === "number") {
-          return body.data.labor_hours;
+        const raw = await res.json();
+        const parsed = CarMdLaborResponseSchema.safeParse(raw);
+        if (parsed.success) {
+          return parsed.data.data.labor_hours;
         }
+        // Fall through to static table
       }
     } catch {
       // Fall through to static table

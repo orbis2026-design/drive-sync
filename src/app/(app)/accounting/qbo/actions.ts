@@ -1,5 +1,6 @@
 "use server";
 
+import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
 import { getTenantId } from "@/lib/auth";
@@ -132,6 +133,19 @@ export async function disconnectQbo(): Promise<{ ok: boolean }> {
 // getQboChartOfAccounts — fetch the Intuit chart of accounts
 // ---------------------------------------------------------------------------
 
+const QboAccountSchema = z.object({
+  Id: z.string(),
+  Name: z.string(),
+  AccountType: z.string(),
+});
+const QboResponseSchema = z.object({
+  QueryResponse: z
+    .object({
+      Account: z.array(QboAccountSchema).optional(),
+    })
+    .optional(),
+});
+
 export async function getQboChartOfAccounts(): Promise<
   ChartOfAccountsEntry[] | { error: string }
 > {
@@ -146,11 +160,7 @@ export async function getQboChartOfAccounts(): Promise<
     .single();
 
   if (!tenant?.qbo_access_token || !tenant?.qbo_realm_id) {
-    // Not connected — return empty list in production, mock data in dev/test
-    if (process.env.NODE_ENV === "production") {
-      return { error: "QuickBooks is not connected. Connect via Settings → Integrations." };
-    }
-    return MOCK_ACCOUNTS;
+    return { error: "QuickBooks is not connected. Connect via Settings → Integrations." };
   }
 
   try {
@@ -167,43 +177,27 @@ export async function getQboChartOfAccounts(): Promise<
       },
     );
     if (!res.ok) {
-      if (process.env.NODE_ENV === "production") {
-        return { error: `QBO API returned HTTP ${res.status}. Re-authenticate via Settings → Integrations.` };
-      }
-      return MOCK_ACCOUNTS;
+      return { error: `QBO API returned HTTP ${res.status}. Re-authenticate via Settings → Integrations.` };
     }
-    const body = await res.json();
+    const raw = await res.json();
+    const parsed = QboResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { error: `QBO API returned unexpected shape: ${parsed.error.message}` };
+    }
     const accounts: ChartOfAccountsEntry[] = (
-      body?.QueryResponse?.Account ?? []
-    ).map(
-      (a: { Id: string; Name: string; AccountType: string }) => ({
-        id: a.Id,
-        name: a.Name,
-        accountType: a.AccountType,
-      }),
-    );
-    return accounts.length > 0 ? accounts : (
-      process.env.NODE_ENV === "production"
-        ? { error: "No income/liability accounts found in QuickBooks." }
-        : MOCK_ACCOUNTS
-    );
+      parsed.data.QueryResponse?.Account ?? []
+    ).map((a) => ({
+      id: a.Id,
+      name: a.Name,
+      accountType: a.AccountType,
+    }));
+    return accounts.length > 0
+      ? accounts
+      : { error: "No income/liability accounts found in QuickBooks." };
   } catch {
-    if (process.env.NODE_ENV === "production") {
-      return { error: "Failed to fetch QuickBooks chart of accounts." };
-    }
-    return MOCK_ACCOUNTS;
+    return { error: "Failed to fetch QuickBooks chart of accounts." };
   }
 }
-
-/** Dev / test fallback accounts — never returned in production. */
-const MOCK_ACCOUNTS: ChartOfAccountsEntry[] = [
-  { id: "1", name: "Labor Revenue", accountType: "Income" },
-  { id: "2", name: "Parts Revenue", accountType: "Income" },
-  { id: "3", name: "Environmental Fees", accountType: "Income" },
-  { id: "4", name: "Sales Tax Payable", accountType: "Other Current Liability" },
-  { id: "5", name: "Service Revenue", accountType: "Income" },
-  { id: "6", name: "Product Sales", accountType: "Income" },
-];
 
 // ---------------------------------------------------------------------------
 // syncPaidWorkOrders — transforms PAID work orders into QBO invoices
@@ -253,19 +247,7 @@ export async function syncPaidWorkOrders(
       orderBy: { closedAt: "desc" },
     });
   } catch (err) {
-    if (process.env.NODE_ENV === "production") {
-      return { error: `Failed to query paid work orders: ${err instanceof Error ? err.message : "Unknown error"}` };
-    }
-    // Dev / test fallback — simulate 3 synced invoices
-    return {
-      synced: 3,
-      failed: 0,
-      invoiceIds: [
-        `QBO-INV-${Date.now()}-1`,
-        `QBO-INV-${Date.now()}-2`,
-        `QBO-INV-${Date.now()}-3`,
-      ],
-    };
+    return { error: `Failed to query paid work orders: ${err instanceof Error ? err.message : "Unknown error"}` };
   }
 
   if (workOrders.length === 0) {
@@ -309,12 +291,7 @@ export async function syncPaidWorkOrders(
     };
 
     if (!tenant?.qbo_access_token || !tenant?.qbo_realm_id) {
-      if (process.env.NODE_ENV === "production") {
-        return { error: "QuickBooks is not connected. Cannot create invoices." };
-      }
-      // Dev / test — simulate success
-      synced.push(`QBO-INV-DEMO-${wo.id.slice(-6)}`);
-      continue;
+      return { error: "QuickBooks is not connected. Cannot create invoices." };
     }
 
     try {
