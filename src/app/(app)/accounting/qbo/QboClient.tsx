@@ -171,7 +171,8 @@ export default function QboClient({ initialStatus }: QboClientProps) {
             <button
               onClick={handleConnect}
               disabled={isPending}
-              className="w-full bg-[#2CA01C] hover:bg-[#25890F] text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-60"
+              aria-label="Connect to QuickBooks"
+              className="w-full bg-success-600 hover:bg-success-700 text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-60"
             >
               {isPending ? "Redirecting…" : "Connect to QuickBooks →"}
             </button>
@@ -275,7 +276,8 @@ export default function QboClient({ initialStatus }: QboClientProps) {
         <button
           onClick={handleSync}
           disabled={isPending || !mapping.labor || !mapping.parts}
-          className="w-full bg-[#2CA01C] hover:bg-[#25890F] text-white font-bold py-4 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          aria-label="Sync paid work orders to QuickBooks"
+          className="w-full bg-success-600 hover:bg-success-700 text-white font-bold py-4 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isPending ? "Syncing…" : "⬆ Sync PAID Work Orders → QuickBooks"}
         </button>

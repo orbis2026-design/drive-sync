@@ -324,8 +324,7 @@ function WeekView({
                   return (
                     <div
                       key={job.id}
-                      className="rounded-lg p-1.5 text-[10px]"
-                      style={{ background: "#1d4ed8" }}
+                      className="rounded-lg p-1.5 text-[10px] bg-blue-700"
                     >
                       <p className="text-white font-semibold truncate">{job.title}</p>
                       <p className="text-blue-300">{formatHour(hour)}</p>

@@ -68,6 +68,7 @@ export function NativeSmsButton({
   return (
     <a
       href={href}
+      aria-label={`Send SMS to ${phoneNumber}`}
       className={[
         "inline-flex items-center justify-center gap-2",
         "rounded-2xl bg-brand-400 text-gray-950",

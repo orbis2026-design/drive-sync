@@ -92,9 +92,6 @@ function DevicePhoneMobileIcon() {
   );
 }
 
-// Brand accent colours extracted as constants for easy updates.
-const AFFIRM_COLOR = "#7ECCE8";
-const KLARNA_COLOR = "#FFB3C7";
 
 interface FinancingBadgeProps {
   totalCents: number;
@@ -167,6 +164,7 @@ function TerminalSection({ onConnectTerminal, status }: TerminalSectionProps) {
         type="button"
         onClick={onConnectTerminal}
         disabled={status === "connected"}
+        aria-label={status === "connected" ? "Stripe Terminal reader connected" : "Connect Stripe Terminal reader"}
         className="w-full rounded-lg border border-zinc-600 bg-zinc-700 px-4 py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {status === "connected" ? "Reader Connected ✓" : "Connect Reader"}
@@ -495,6 +493,7 @@ export function PaymentOptions({
         type="button"
         onClick={() => handlePay("card")}
         disabled={isLoading !== null}
+        aria-label="Pay with credit or debit card"
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-md transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <CreditCardIcon />
@@ -513,13 +512,14 @@ export function PaymentOptions({
             type="button"
             onClick={() => handlePay("affirm")}
             disabled={isLoading !== null}
+            aria-label={`Pay with Affirm — 4 interest-free payments of $${formatDollars(Math.ceil(totalCents / 4))}`}
             className="flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-600 bg-zinc-800 px-4 py-3 text-sm font-semibold text-zinc-100 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading === "affirm" ? (
               "Processing…"
             ) : (
               <>
-                <span className="font-bold" style={{ color: AFFIRM_COLOR }}>Affirm</span>
+                <span className="font-bold text-sky-300">Affirm</span>
                 <span className="text-zinc-400 text-xs font-normal">
                   · 4 interest-free payments of ${formatDollars(Math.ceil(totalCents / 4))}
                 </span>
@@ -532,13 +532,14 @@ export function PaymentOptions({
             type="button"
             onClick={() => handlePay("klarna")}
             disabled={isLoading !== null}
+            aria-label="Pay with Klarna — buy now, pay later"
             className="flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-600 bg-zinc-800 px-4 py-3 text-sm font-semibold text-zinc-100 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading === "klarna" ? (
               "Processing…"
             ) : (
               <>
-                <span className="font-bold" style={{ color: KLARNA_COLOR }}>Klarna</span>
+                <span className="font-bold text-pink-300">Klarna</span>
                 <span className="text-zinc-400 text-xs font-normal">
                   · Buy now, pay later
                 </span>

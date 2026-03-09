@@ -181,7 +181,7 @@ function SMSPreviewCard({ clientName }: SMSPreviewCardProps) {
         <div
           className={[
             "max-w-[85%] rounded-2xl rounded-tr-sm",
-            "bg-[#1e88e5] px-4 py-3",
+            "bg-blue-600 px-4 py-3",
             "text-xs text-white leading-relaxed",
           ].join(" ")}
         >
