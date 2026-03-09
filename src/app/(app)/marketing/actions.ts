@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { BLAST_AUDIENCES } from "./constants";
 import { getTenantId } from "@/lib/auth";
+import { sendSMS } from "@/lib/twilio";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,24 +20,6 @@ export type QueuedMessage = {
 };
 
 export type { BlastAudience } from "./constants";
-
-// ---------------------------------------------------------------------------
-// Simulated Twilio SMS helper
-// ---------------------------------------------------------------------------
-
-async function simulateSendSMS(
-  to: string | null,
-  body: string,
-): Promise<void> {
-  // In production replace with:
-  //   const twilio = require('twilio');
-  //   const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-  //   await client.messages.create({ from: process.env.TWILIO_PHONE_NUMBER, to, body });
-  console.log(
-    `[Twilio Sim] → ${to ?? "unknown"}: ${body.slice(0, 80)}${body.length > 80 ? "…" : ""}`,
-  );
-  await new Promise((resolve) => setTimeout(resolve, 80)); // simulate network
-}
 
 // ---------------------------------------------------------------------------
 // fetchQueuedMessages
@@ -97,7 +80,12 @@ export async function approveAndSendMessage(
     if (campaign.status !== "QUEUED")
       return { error: "Message is no longer queued." };
 
-    await simulateSendSMS(campaign.phoneNumber, campaign.message);
+    if (campaign.phoneNumber) {
+      const smsResult = await sendSMS(campaign.phoneNumber, campaign.message);
+      if (!smsResult.success) {
+        return { error: `SMS delivery failed: ${smsResult.error}` };
+      }
+    }
 
     await prisma.outboundCampaign.update({
       where: { id },
@@ -212,10 +200,18 @@ export async function sendBlastCampaign(
       select: { id: true, phone: true },
     });
 
-    // Send (simulate) + create campaign rows
+    // Send SMS + create campaign rows
     await Promise.all(
       clients.map(async (c: (typeof clients)[number]) => {
-        await simulateSendSMS(c.phone, message);
+        if (c.phone) {
+          const smsResult = await sendSMS(c.phone, message);
+          if (!smsResult.success) {
+            console.error(
+              `[marketing] SMS to client ${c.id} failed:`,
+              smsResult.error,
+            );
+          }
+        }
         await prisma.outboundCampaign.create({
           data: {
             tenantId,

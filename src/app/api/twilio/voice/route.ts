@@ -21,8 +21,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import twilio from "twilio";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { validateTwilioWebhook, sendSMS } from "@/lib/twilio";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "";
 
@@ -45,16 +45,31 @@ function twimlResponse(xml: string): NextResponse {
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest) {
+  // Parse form data once so we can validate and pass to sub-handlers.
+  const formData = await req.formData();
+  const params: Record<string, string> = {};
+  formData.forEach((value, key) => {
+    params[key] = String(value);
+  });
+
+  // Verify the request was genuinely sent by Twilio.
+  const isValid = await validateTwilioWebhook(req, params);
+  if (!isValid) {
+    return twimlResponse(
+      `<Say voice="Polly.Joanna">Request validation failed.</Say>`,
+    );
+  }
+
   const { searchParams } = new URL(req.url);
   const event = searchParams.get("event");
 
   // --- Missed-call / status callback path ---------------------------------
   if (event === "missed") {
-    return handleMissedCall(req);
+    return handleMissedCall(req, params);
   }
 
   // --- Initial inbound call -----------------------------------------------
-  return handleInboundCall(req);
+  return handleInboundCall(params);
 }
 
 // ---------------------------------------------------------------------------
@@ -62,9 +77,8 @@ export async function POST(req: NextRequest) {
 // Reads the mechanic's forwarding number from Supabase and emits <Dial> TwiML.
 // ---------------------------------------------------------------------------
 
-async function handleInboundCall(req: NextRequest): Promise<NextResponse> {
-  const formData = await req.formData();
-  const to = formData.get("To") as string | null; // Our Twilio number
+async function handleInboundCall(params: Record<string, string>): Promise<NextResponse> {
+  const to = params.To ?? null; // Our Twilio number
 
   const adminDb = createAdminClient();
 
@@ -133,21 +147,20 @@ async function handleInboundCall(req: NextRequest): Promise<NextResponse> {
 // a lead-capture message and logs them in the clients table.
 // ---------------------------------------------------------------------------
 
-async function handleMissedCall(req: NextRequest): Promise<NextResponse> {
+async function handleMissedCall(req: NextRequest, params: Record<string, string>): Promise<NextResponse> {
   const { searchParams } = new URL(req.url);
   const tenantId = searchParams.get("tenantId") ?? "";
   const tenantName = searchParams.get("tenantName") ?? "Your Mechanic";
   const tenantSlug = searchParams.get("tenantSlug") ?? tenantId;
 
-  const formData = await req.formData();
-  const dialStatus = formData.get("DialCallStatus") as string | null;
+  const dialStatus = params.DialCallStatus ?? null;
 
   // Only act on calls that were not answered.
   if (dialStatus === "completed") {
     return twimlResponse(""); // Call was answered — nothing to do.
   }
 
-  const callerPhone = formData.get("From") as string | null;
+  const callerPhone = params.From ?? null;
   if (!callerPhone) {
     return twimlResponse("");
   }
@@ -157,23 +170,10 @@ async function handleMissedCall(req: NextRequest): Promise<NextResponse> {
     `Hi, this is ${tenantName}. I'm under a car right now! ` +
     `You can drop your vehicle details here to get a quick quote: ${intakeUrl}`;
 
-  const twilioClient = twilio(
-    process.env.TWILIO_ACCOUNT_SID,
-    process.env.TWILIO_AUTH_TOKEN,
-  );
-  const fromNumber = process.env.TWILIO_FROM_NUMBER;
-
-  // Send the missed-call text.
-  if (fromNumber) {
-    try {
-      await twilioClient.messages.create({
-        to: callerPhone,
-        from: fromNumber,
-        body: smsBody,
-      });
-    } catch (err) {
-      console.error("[twilio/voice] Failed to send missed-call SMS:", err);
-    }
+  // Send the missed-call text via the shared Twilio client.
+  const smsResult = await sendSMS(callerPhone, smsBody);
+  if (!smsResult.success) {
+    console.error("[twilio/voice] Failed to send missed-call SMS:", smsResult.error);
   }
 
   // Log as a LEAD in the clients table (upsert by phone to avoid duplication).

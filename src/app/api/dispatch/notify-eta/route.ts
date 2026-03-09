@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendSMS } from "@/lib/twilio";
 
 // ---------------------------------------------------------------------------
 // Types — Supabase joined query result shapes
@@ -115,27 +116,13 @@ export async function POST(req: NextRequest) {
     `and they can now arrive for the ${vehicleLabel} service at approximately ${scheduledAt}. ` +
     `Reply STOP to opt out.`;
 
-  // Send SMS via Twilio if credentials are present
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const fromNumber = process.env.TWILIO_FROM_NUMBER;
-
-  if (accountSid && authToken && fromNumber) {
-    try {
-      const { default: twilio } = await import("twilio");
-      const client = twilio(accountSid, authToken);
-      await client.messages.create({
-        to: clientPhone,
-        from: fromNumber,
-        body: smsBody,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Twilio error";
-      return NextResponse.json(
-        { error: `SMS delivery failed: ${message}` },
-        { status: 502 },
-      );
-    }
+  // Send SMS via Twilio
+  const smsResult = await sendSMS(clientPhone, smsBody);
+  if (!smsResult.success) {
+    return NextResponse.json(
+      { error: `SMS delivery failed: ${smsResult.error}` },
+      { status: 502 },
+    );
   }
 
   return NextResponse.json({ sent: true, phone: clientPhone });
