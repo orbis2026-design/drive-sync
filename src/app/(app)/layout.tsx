@@ -100,10 +100,12 @@ export default async function AppLayout({
         <div className="h-[100dvh] w-full overflow-hidden bg-gray-950 flex">
           {/* New ARI-style desktop sidebar + mobile bottom nav (Issue #114) */}
           <NavShell role={role} />
-          <main className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col pb-20 lg:pb-0 relative">
+          <main className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col pb-20 lg:pb-0 relative bg-black">
             {/* Contextual top bar (Issue #115) */}
             <TopBar />
-            {children}
+            <div className="flex-1 p-4 sm:p-6 lg:p-8">
+              {children}
+            </div>
           </main>
         </div>
       </InactivityLock>
