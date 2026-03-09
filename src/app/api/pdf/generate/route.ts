@@ -1,23 +1,19 @@
 /**
  * POST /api/pdf/generate
  *
- * Generates a locked PDF containing:
+ * Generates a legally-binding signed PDF contract containing:
  *   • Pre-inspection media references
  *   • Quote / Work Order details
- *   • Legal authorization text
- *   • Customer electronic signature
+ *   • Legal authorization text (ESIGN Act / UETA)
+ *   • Customer electronic signature (embedded image)
  *
- * The PDF is saved to Supabase Storage and a download URL is returned.
- *
- * Production implementation: replace the jsPDF mock with puppeteer-core
- * (via a headless Chrome provider such as @sparticuz/chromium) to render
- * a full HTML template, or use the jsPDF/pdfmake libraries.
- *
- * For the prototype, this handler generates a structured PDF manifest
- * representing the signed document and uploads it to Supabase Storage.
+ * The PDF is rendered with jsPDF, saved to Supabase Storage, emailed to the
+ * customer via Resend, and a download URL is returned.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
+import { renderContractPdf } from "@/lib/pdf-renderer";
+import { sendContractEmail } from "@/lib/email";
 
 // ---------------------------------------------------------------------------
 // Request / Response types
@@ -90,45 +86,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    // ── Build PDF manifest ────────────────────────────────────────────────
-    // In production: use puppeteer-core + @sparticuz/chromium to render a
-    // full HTML template, or use jsPDF/pdfmake for structured output.
-    //
-    // For this prototype we compose a structured JSON manifest representing
-    // the document content. The manifest includes all legally material fields.
-
+    // ── Render real PDF ───────────────────────────────────────────────────
     const formattedSignedAt = new Date(signedAt).toLocaleString("en-US", {
       dateStyle: "full",
       timeStyle: "long",
     });
     const totalDollars = (totalCents / 100).toFixed(2);
+    const generatedAt = new Date().toISOString();
 
-    const pdfManifest = {
-      title: `Signed Authorization — Work Order ${workOrderId}`,
+    const pdfBytes = renderContractPdf({
+      workOrderId,
       shopName,
       clientName,
       clientEmail: clientEmail ?? "N/A",
-      workOrderId,
-      totalAmount: `$${totalDollars}`,
-      signedAt: formattedSignedAt,
+      totalDollars,
+      formattedSignedAt,
       clientIp: clientIp ?? "Not recorded",
-      preInspectionMediaCount: preInspectionMediaPaths.length,
       preInspectionMediaPaths,
-      signatureEmbedded: signatureDataUrl.startsWith("data:image/"),
-      generatedAt: new Date().toISOString(),
-      legalNotice: [
-        "This document was generated automatically by DriveSync.",
-        "It serves as the legally binding record of the customer's authorization.",
-        "The embedded signature is an authentic electronic signature under",
-        "applicable e-signature laws (ESIGN Act, UETA).",
-      ].join(" "),
-    };
-
-    // Produce PDF bytes — currently a JSON manifest; replace with real PDF
-    const pdfBytes = Buffer.from(
-      JSON.stringify(pdfManifest, null, 2),
-      "utf-8",
-    );
+      signatureDataUrl,
+      generatedAt,
+    });
 
     // ── Upload to Supabase Storage ────────────────────────────────────────
     const fileName = `contracts/${workOrderId}/signed-contract-${Date.now()}.pdf`;
@@ -160,11 +137,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const pdfUrl = urlData.publicUrl;
 
     // ── Email notification (best-effort) ──────────────────────────────────
-    // TODO: integrate with Resend / SendGrid to email the PDF to clientEmail.
     if (clientEmail) {
-      console.info(
-        `[pdf/generate] TODO: email signed contract to ${clientEmail}`,
-      );
+      const attachmentName = `signed-contract-${workOrderId}.pdf`;
+      await sendContractEmail({
+        to: clientEmail,
+        clientName,
+        shopName,
+        workOrderId,
+        pdfBuffer: pdfBytes,
+        pdfFileName: attachmentName,
+      });
     }
 
     const response: GeneratePdfResponse = { pdfUrl, fileName };
