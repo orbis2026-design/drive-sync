@@ -89,7 +89,7 @@ export async function decodeVin(
   }
 
   // ── Step B: Query global_vehicles (cache lookup) ──────────────────────────
-  const db = createServerClient();
+  const db = await createServerClient();
   const { data: existing, error: queryError } = await db
     .from("global_vehicles")
     .select("id, year, make, model, engine, trim, oil_capacity_qts, oil_weight_oem, submodel_options_json, maintenance_schedule_json")

@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createServerClient } from "@/lib/supabase/server";
 import { CommandPaletteProvider } from "@/components/command-palette";
 import { NavShell } from "@/components/navigation/NavShell";
 import { TopBar } from "@/components/navigation/TopBar";
@@ -60,6 +61,22 @@ export default async function AppLayout({
   // We use it here to detect if the user is already on the billing page.
   const headersList = await headers();
   const pathname = headersList.get("x-pathname") ?? "";
+
+  // ---------------------------------------------------------------------------
+  // Auth guard (Issue #132) — double-check backup to the middleware.
+  // The middleware should have already redirected unauthenticated users, but
+  // this server-side check provides an extra layer of security.
+  // ---------------------------------------------------------------------------
+  try {
+    const supabase = await createServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      redirect("/auth/login");
+    }
+  } catch {
+    // If server client creation fails (e.g. missing env vars in dev),
+    // fall through and let the middleware handle it.
+  }
 
   // Allow the billing page to always render (prevents redirect loop).
   if (!pathname.startsWith(BILLING_PATH)) {

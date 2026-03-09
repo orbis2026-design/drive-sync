@@ -165,6 +165,17 @@ function FleetIcon({ className }: { className?: string }) {
   );
 }
 
+function RetentionIcon({ className }: { className?: string }) {
+  return (
+    <Icon className={className}>
+      <path d="M12 2a10 10 0 1 0 10 10" />
+      <path d="M12 6v6l4 2" />
+      <circle cx="19" cy="5" r="3" />
+      <path d="M17.5 5h3M19 3.5v3" />
+    </Icon>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Tab definitions
 // ---------------------------------------------------------------------------
@@ -192,6 +203,7 @@ const SHOP_OWNER_TABS: NavTab[] = [
   { href: "/fleet/billing", label: "Fleet Billing", icon: FleetIcon,    featureKey: "fleet", hideOnMobile: true },
   { href: "/parts/catalog", label: "Nexpart PO",    icon: ReceiptIcon,                         },
   { href: "/analytics",     label: "Financials",    icon: AnalyticsIcon,                       },
+  { href: "/marketing",     label: "Retention",     icon: RetentionIcon, hideOnMobile: true    },
   { href: "/accounting",    label: "Stripe Payouts",icon: DollarIcon,   hideOnMobile: true     },
   { href: "/settings",      label: "Settings",      icon: SettingsIcon,                        },
 ];

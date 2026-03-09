@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateTwilioWebhook } from "@/lib/twilio";
+import { prisma } from "@/lib/prisma";
 
 /**
  * Twilio inbound SMS webhook.
@@ -13,7 +14,15 @@ import { validateTwilioWebhook } from "@/lib/twilio";
  * Security: every incoming request is verified using the X-Twilio-Signature
  * header and the TWILIO_AUTH_TOKEN env var via `twilio.validateRequest()`.
  * Requests with invalid signatures are rejected with 403.
+ *
+ * Twilio Compliance (Issue #138): STOP/UNSUBSCRIBE/CANCEL keywords set
+ * opted_out_sms = true on the client record. No auto-reply is sent because
+ * Twilio handles STOP responses natively at the carrier level.
  */
+
+/** Normalized opt-out keywords per TCPA / Twilio compliance. */
+const OPT_OUT_KEYWORDS = new Set(["STOP", "UNSUBSCRIBE", "CANCEL"]);
+
 export async function POST(req: NextRequest) {
   try {
     // Twilio sends application/x-www-form-urlencoded
@@ -73,6 +82,21 @@ export async function POST(req: NextRequest) {
       .eq("phone", from)
       .single();
 
+    // Check for opt-out keywords (Issue #138).
+    // Set opted_out_sms = true before inserting the audit message.
+    const normalizedBody = body.trim().toUpperCase();
+    if (client?.id && OPT_OUT_KEYWORDS.has(normalizedBody)) {
+      try {
+        await prisma.client.update({
+          where: { id: client.id },
+          data: { opted_out_sms: true },
+        });
+      } catch (err) {
+        console.error("[twilio/webhook] Failed to set opted_out_sms:", err);
+      }
+    }
+
+    // Insert message for audit trail regardless of opt-out status.
     const { error } = await supabase.from("messages").insert({
       tenant_id: tenantId,
       client_id: client?.id ?? null,
@@ -89,7 +113,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Respond with empty TwiML so Twilio doesn't auto-reply
+    // Return empty TwiML — no auto-reply.
+    // Twilio handles STOP/UNSUBSCRIBE responses natively at the carrier level.
     return new NextResponse(twilioXml(), {
       status: 200,
       headers: { "Content-Type": "text/xml" },
