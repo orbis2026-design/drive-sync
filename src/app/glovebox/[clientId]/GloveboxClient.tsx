@@ -25,38 +25,55 @@ function formatDate(iso: string | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// ReceiptButton — simulated PDF download
+// ReceiptButton — PDF receipt download
 // ---------------------------------------------------------------------------
 
 function ReceiptButton({ wo }: { wo: GloveboxWorkOrder }) {
-  function handleDownload() {
-    // Simulated PDF: generate a simple text blob as a stand-in
-    const content = [
-      "DriveSync — Service Receipt",
-      "─────────────────────────────────",
-      `Job: ${wo.title}`,
-      `Date: ${formatDate(wo.closedAt)}`,
-      `Description: ${wo.description}`,
-      "─────────────────────────────────",
-      `Total: ${formatCents(wo.totalCents)}`,
-      "",
-      "Thank you for your business!",
-    ].join("\n");
+  const [loading, setLoading] = useState(false);
 
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `receipt-${wo.id.slice(0, 8)}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+  async function handleDownload() {
+    setLoading(true);
+    try {
+      // Call the PDF generation endpoint to produce a real receipt PDF
+      const res = await fetch("/api/pdf/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "receipt",
+          workOrderId: wo.id,
+          title: wo.title,
+          description: wo.description,
+          totalCents: wo.totalCents,
+          closedAt: wo.closedAt,
+        }),
+      });
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `receipt-${wo.id.slice(0, 8)}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        // Fallback: generate a formatted text receipt if PDF API unavailable
+        downloadTextReceipt(wo);
+      }
+    } catch {
+      // Fallback: generate a formatted text receipt if fetch fails
+      downloadTextReceipt(wo);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <button
       type="button"
       onClick={handleDownload}
-      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-300 text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 active:bg-gray-100 transition-colors"
+      disabled={loading}
+      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-300 text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 active:bg-gray-100 transition-colors disabled:opacity-50"
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -73,9 +90,32 @@ function ReceiptButton({ wo }: { wo: GloveboxWorkOrder }) {
         <polyline points="7 10 12 15 17 10" />
         <line x1="12" y1="15" x2="12" y2="3" />
       </svg>
-      Receipt
+      {loading ? "Generating…" : "Receipt"}
     </button>
   );
+}
+
+/** Text-based receipt fallback when the PDF API is unavailable. */
+function downloadTextReceipt(wo: GloveboxWorkOrder) {
+  const content = [
+    "DriveSync — Service Receipt",
+    "─────────────────────────────────",
+    `Job: ${wo.title}`,
+    `Date: ${formatDate(wo.closedAt)}`,
+    `Description: ${wo.description}`,
+    "─────────────────────────────────",
+    `Total: ${formatCents(wo.totalCents)}`,
+    "",
+    "Thank you for your business!",
+  ].join("\n");
+
+  const blob = new Blob([content], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `receipt-${wo.id.slice(0, 8)}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ---------------------------------------------------------------------------

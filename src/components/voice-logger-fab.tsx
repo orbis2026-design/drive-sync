@@ -3,6 +3,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // ---------------------------------------------------------------------------
+// Web Speech API type shim (not in TypeScript's default lib.dom)
+// ---------------------------------------------------------------------------
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type SpeechRecognitionCompat = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: any) => void) | null;
+  onerror: ((event: any) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -27,15 +44,7 @@ type LoggerState = "idle" | "recording" | "parsing" | "done";
 // Constants
 // ---------------------------------------------------------------------------
 
-/**
- * Mock transcript used by the AI parser simulation.
- * In a production build this would be replaced by the Web Speech API
- * (or a cloud ASR service) output captured during the recording phase.
- */
-const MOCK_TRANSCRIPT =
-  "Car shakes at 60mph and smells like burning rubber";
-
-/** Lines typed out during the simulated AI-parsing phase. */
+/** Lines typed out during the AI-parsing phase. */
 const PARSING_LINES = [
   "> Receiving audio buffer…",
   "> Transcribing voice input…",
@@ -48,19 +57,18 @@ const PARSING_LINES = [
 /** Flat string rendered by the terminal typer (newline-separated). */
 const PARSING_TEXT = PARSING_LINES.join("\n");
 
-/** Milliseconds to auto-stop a simulated recording session. */
-const RECORDING_AUTO_STOP_MS = 4_000;
+/** Milliseconds to auto-stop recording if the user does not manually stop. */
+const RECORDING_AUTO_STOP_MS = 15_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Simulates an AI parser that converts a raw technician transcript into the
- * three standard repair-order fields. Cause and Correction are left blank for
- * the technician to fill in after diagnosis / repair.
+ * Converts a raw technician transcript into the three standard repair-order
+ * fields. Cause and Correction are left blank for the technician to fill in.
  */
-function parseMockTranscript(transcript: string): ParsedVoiceNote {
+function parseTranscript(transcript: string): ParsedVoiceNote {
   const trimmed = transcript.trim();
   return {
     complaint: trimmed.charAt(0).toUpperCase() + trimmed.slice(1),
@@ -68,6 +76,17 @@ function parseMockTranscript(transcript: string): ParsedVoiceNote {
     correction: "", // technician fills after repair
     rawTranscript: transcript,
   };
+}
+
+/**
+ * Returns true when the browser supports the Web Speech API
+ * (SpeechRecognition or webkitSpeechRecognition).
+ */
+function hasSpeechRecognition(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    "SpeechRecognition" in window || "webkitSpeechRecognition" in window
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -273,8 +292,10 @@ export function VoiceLoggerFab({ onSave }: VoiceLoggerFabProps) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [transcript, setTranscript] = useState("");
 
   const recordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionCompat | null>(null);
 
   // ── Recording controls ────────────────────────────────────────────────────
 
@@ -282,17 +303,72 @@ export function VoiceLoggerFab({ onSave }: VoiceLoggerFabProps) {
     setNote(null);
     setSaved(false);
     setSaveError(null);
+    setTranscript("");
     setState("recording");
     setPanelOpen(true);
-    // Auto-stop after RECORDING_AUTO_STOP_MS to simulate a real session.
+
+    if (hasSpeechRecognition()) {
+      // --- Real Web Speech API -------------------------------------------
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const w = window as any;
+      const SpeechRecognitionCtor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+      if (SpeechRecognitionCtor) {
+        const recognition: SpeechRecognitionCompat = new SpeechRecognitionCtor();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = "en-US";
+
+        let finalTranscript = "";
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        recognition.onresult = (event: any) => {
+          let interim = "";
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const result = event.results[i];
+            if (result.isFinal) {
+              finalTranscript += result[0].transcript + " ";
+            } else {
+              interim += result[0].transcript;
+            }
+          }
+          setTranscript((finalTranscript + interim).trim());
+        };
+
+        recognition.onerror = () => {
+          // On error, transition to parsing with whatever we captured
+          setState("parsing");
+        };
+
+        recognition.onend = () => {
+          // Recognition ended (may happen automatically)
+          if (finalTranscript.trim()) {
+            setTranscript(finalTranscript.trim());
+          }
+        };
+
+        recognition.start();
+        recognitionRef.current = recognition;
+      }
+    }
+
+    // Auto-stop after RECORDING_AUTO_STOP_MS
     recordTimerRef.current = setTimeout(
-      () => setState("parsing"),
+      () => {
+        if (recognitionRef.current) {
+          recognitionRef.current.stop();
+          recognitionRef.current = null;
+        }
+        setState("parsing");
+      },
       RECORDING_AUTO_STOP_MS,
     );
   }, []);
 
   const stopRecording = useCallback(() => {
     if (recordTimerRef.current) clearTimeout(recordTimerRef.current);
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
     setState("parsing");
   }, []);
 
@@ -304,10 +380,15 @@ export function VoiceLoggerFab({ onSave }: VoiceLoggerFabProps) {
   // ── Parsing complete ──────────────────────────────────────────────────────
 
   const handleParsingComplete = useCallback(() => {
-    const parsed = parseMockTranscript(MOCK_TRANSCRIPT);
+    // Use the real transcript captured by the Web Speech API.
+    // If the transcript is empty (e.g. no speech detected or API unavailable),
+    // use a placeholder that the technician can edit.
+    const rawText =
+      transcript.trim() || "No speech detected — type your notes below";
+    const parsed = parseTranscript(rawText);
     setNote(parsed);
     setState("done");
-  }, []);
+  }, [transcript]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
 
@@ -328,11 +409,16 @@ export function VoiceLoggerFab({ onSave }: VoiceLoggerFabProps) {
 
   const handleReset = useCallback(() => {
     if (recordTimerRef.current) clearTimeout(recordTimerRef.current);
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
     setState("idle");
     setNote(null);
     setPanelOpen(false);
     setSaved(false);
     setSaveError(null);
+    setTranscript("");
   }, []);
 
   // ── Derived flags ─────────────────────────────────────────────────────────

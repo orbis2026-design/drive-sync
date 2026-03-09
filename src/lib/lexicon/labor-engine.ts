@@ -7,12 +7,15 @@
  * Flow:
  *   1. Call Supabase RPC `get_avg_labor_hours` with service type + vehicle submodel.
  *   2. If at least 3 samples exist → return lexicon result (`source: 'lexicon'`).
- *   3. If fewer than 3 samples → fall back to mock CarMD estimates (`source: 'carmd'`).
+ *   3. If fewer than 3 samples:
+ *      a. Production with `CARMD_API_KEY` → call real CarMD API.
+ *      b. Dev / test → fall back to embedded static estimates (`source: 'carmd'`).
  *   4. If nothing found → return `source: 'none'` with zero hours.
  *
  * Environment variables required:
  *   NEXT_PUBLIC_SUPABASE_URL
  *   SUPABASE_SERVICE_ROLE_KEY
+ *   CARMD_API_KEY (optional — enables real CarMD labour lookups)
  */
 
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -44,6 +47,13 @@ export interface LaborSuggestion {
 }
 
 // ---------------------------------------------------------------------------
+// Environment
+// ---------------------------------------------------------------------------
+
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const CARMD_API_KEY = process.env.CARMD_API_KEY ?? "";
+
+// ---------------------------------------------------------------------------
 // Minimum confidence threshold
 // ---------------------------------------------------------------------------
 
@@ -51,12 +61,14 @@ export interface LaborSuggestion {
 const MIN_SAMPLE_COUNT = 3;
 
 // ---------------------------------------------------------------------------
-// Mock CarMD estimates (used when lexicon has < MIN_SAMPLE_COUNT jobs)
+// Static CarMD estimates — dev / test fallback only
+// In production with CARMD_API_KEY set, getCarMdEstimate() calls the real API.
 // ---------------------------------------------------------------------------
 
 /**
  * Realistic labor-hour estimates keyed by normalised service-type keywords.
  * Keys are lower-cased substrings that may appear in the service description.
+ * Used only in dev / test when no CARMD_API_KEY is configured.
  */
 const CARMD_ESTIMATES: Array<{ keywords: string[]; hours: number }> = [
   { keywords: ["oil change", "oil filter", "lube"], hours: 0.5 },
@@ -86,10 +98,43 @@ const CARMD_ESTIMATES: Array<{ keywords: string[]; hours: number }> = [
 ];
 
 /**
- * Returns a mock CarMD estimate for the given service type string, or null if
- * no matching entry exists in the local table.
+ * Returns a CarMD labor estimate for the given service type string.
+ *
+ * When `CARMD_API_KEY` is set, calls the real CarMD API. Otherwise falls back
+ * to the embedded static table (dev / test only — blocked in production).
  */
-function getCarMdEstimate(serviceType: string): number | null {
+async function getCarMdEstimate(serviceType: string): Promise<number | null> {
+  // --- Real CarMD API when key is configured --------------------------------
+  if (CARMD_API_KEY) {
+    try {
+      const res = await fetch(
+        `https://api.carmd.com/v3.0/labor?service=${encodeURIComponent(serviceType)}`,
+        {
+          headers: {
+            Authorization: CARMD_API_KEY,
+            "Content-Type": "application/json",
+          },
+        },
+      );
+      if (res.ok) {
+        const body = (await res.json()) as {
+          data?: { labor_hours?: number };
+        };
+        if (typeof body?.data?.labor_hours === "number") {
+          return body.data.labor_hours;
+        }
+      }
+    } catch {
+      // Fall through to static table
+    }
+  }
+
+  // --- Production without API key → no silent fallback ---------------------
+  if (IS_PRODUCTION && !CARMD_API_KEY) {
+    return null;
+  }
+
+  // --- Dev / test static fallback -------------------------------------------
   const lower = serviceType.toLowerCase();
   for (const entry of CARMD_ESTIMATES) {
     if (entry.keywords.some((kw) => lower.includes(kw))) {
@@ -153,7 +198,7 @@ export async function getSuggestedLaborHours(
   }
 
   // --- 2. CarMD fallback ---------------------------------------------------
-  const carMdHours = getCarMdEstimate(serviceType);
+  const carMdHours = await getCarMdEstimate(serviceType);
 
   if (carMdHours !== null) {
     return {

@@ -2,24 +2,41 @@
  * supplier-api.ts — Generic B2B Parts Supplier Integration Utility
  *
  * Provides a uniform interface for authenticating with and querying a wholesale
- * parts distributor (modelled after Nexpart / Epicor EpicLink). In production
- * the environment variables below would be real credentials; in the current
- * state the network calls are intercepted and a rich mock response is returned
- * so that the full UI flow can be exercised without a live vendor account.
+ * parts distributor (modelled after Nexpart / Epicor EpicLink).
+ *
+ * In production (`NODE_ENV=production`) all four environment variables below
+ * **must** be set to real vendor credentials. The module will throw at import
+ * time if any are missing so that mock data never leaks into live deployments.
+ *
+ * In development / test the mock catalogue is used when credentials are absent,
+ * allowing the full UI flow to be exercised without a live vendor account.
  */
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-const SUPPLIER_BASE_URL =
-  process.env.SUPPLIER_API_BASE_URL ?? "https://api.nexpart-mock.internal/v2";
-const SUPPLIER_CLIENT_ID =
-  process.env.SUPPLIER_CLIENT_ID ?? "demo-client-id";
-const SUPPLIER_CLIENT_SECRET =
-  process.env.SUPPLIER_CLIENT_SECRET ?? "demo-client-secret";
-const SUPPLIER_API_KEY =
-  process.env.SUPPLIER_API_KEY ?? "demo-api-key-abc123";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+const SUPPLIER_BASE_URL = process.env.SUPPLIER_API_BASE_URL ?? "";
+const SUPPLIER_CLIENT_ID = process.env.SUPPLIER_CLIENT_ID ?? "";
+const SUPPLIER_CLIENT_SECRET = process.env.SUPPLIER_CLIENT_SECRET ?? "";
+const SUPPLIER_API_KEY = process.env.SUPPLIER_API_KEY ?? "";
+
+/** True when real supplier credentials are configured. */
+const HAS_REAL_CREDENTIALS =
+  SUPPLIER_BASE_URL !== "" &&
+  SUPPLIER_CLIENT_ID !== "" &&
+  SUPPLIER_CLIENT_SECRET !== "" &&
+  SUPPLIER_API_KEY !== "";
+
+if (IS_PRODUCTION && !HAS_REAL_CREDENTIALS) {
+  throw new Error(
+    "[supplier-api] Production environment requires SUPPLIER_API_BASE_URL, " +
+      "SUPPLIER_CLIENT_ID, SUPPLIER_CLIENT_SECRET, and SUPPLIER_API_KEY. " +
+      "Set these environment variables to real vendor credentials.",
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,20 +124,49 @@ export async function getSupplierToken(): Promise<AuthToken> {
     return _cachedToken;
   }
 
-  // ---------- Mock implementation (no live vendor account) -----------------
-  // In production: POST to `${SUPPLIER_BASE_URL}/oauth/token` with
-  // grant_type=client_credentials, client_id, client_secret.
-  // -------------------------------------------------------------------------
-  void SUPPLIER_BASE_URL;        // suppress "unused" lint warnings
-  void SUPPLIER_CLIENT_ID;
-  void SUPPLIER_CLIENT_SECRET;
-  void SUPPLIER_API_KEY;
+  if (HAS_REAL_CREDENTIALS) {
+    // --- Real OAuth 2.0 client_credentials flow ----------------------------
+    const res = await fetch(`${SUPPLIER_BASE_URL}/oauth/token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Api-Key": SUPPLIER_API_KEY,
+      },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: SUPPLIER_CLIENT_ID,
+        client_secret: SUPPLIER_CLIENT_SECRET,
+      }),
+    });
 
+    if (!res.ok) {
+      throw new Error(`Supplier OAuth failed: HTTP ${res.status}`);
+    }
+
+    const json = (await res.json()) as {
+      access_token?: string;
+      expires_in?: number;
+    };
+    if (!json.access_token) {
+      throw new Error("Supplier OAuth response missing access_token.");
+    }
+
+    const expiresIn =
+      typeof json.expires_in === "number"
+        ? json.expires_in * 1000
+        : 3_600_000;
+    _cachedToken = {
+      accessToken: json.access_token,
+      expiresAt: now + expiresIn,
+    };
+    return _cachedToken;
+  }
+
+  // --- Dev / test fallback (no live vendor account) ------------------------
   _cachedToken = {
     accessToken: `mock-bearer-${Date.now()}`,
-    expiresAt: now + 3_600_000, // 1 hour
+    expiresAt: now + 3_600_000,
   };
-
   return _cachedToken;
 }
 
@@ -140,7 +186,7 @@ function etaLabel(minutes: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Mock parts catalogue (keyed by category → subcategory)
+// Mock parts catalogue — dev / test only (gated by HAS_REAL_CREDENTIALS)
 // ---------------------------------------------------------------------------
 
 interface MockEntry {
@@ -352,10 +398,82 @@ export interface SearchPartsOptions {
 export async function searchParts(
   options: SearchPartsOptions,
 ): Promise<SupplierPart[]> {
-  // In production: POST to `${SUPPLIER_BASE_URL}/parts/search` with
-  // the auth token and fitment parameters.
-  await getSupplierToken(); // ensure authenticated
+  const token = await getSupplierToken();
 
+  if (HAS_REAL_CREDENTIALS) {
+    // --- Real API call -------------------------------------------------------
+    const params = new URLSearchParams();
+    if (options.category) params.set("category", options.category);
+    if (options.subcategory) params.set("subcategory", options.subcategory);
+    if (options.query) params.set("q", options.query);
+    if (options.vehicleYear) params.set("year", String(options.vehicleYear));
+    if (options.vehicleMake) params.set("make", options.vehicleMake);
+    if (options.vehicleModel) params.set("model", options.vehicleModel);
+    if (options.vin) params.set("vin", options.vin);
+
+    const res = await fetch(
+      `${SUPPLIER_BASE_URL}/parts/search?${params.toString()}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token.accessToken}`,
+          Accept: "application/json",
+        },
+      },
+    );
+
+    if (!res.ok) {
+      throw new Error(`Supplier parts search failed: HTTP ${res.status}`);
+    }
+
+    const body = (await res.json()) as {
+      results?: Record<string, unknown>[];
+      parts?: Record<string, unknown>[];
+    };
+    const rawParts = body.results ?? body.parts ?? [];
+    return rawParts.map((p) => ({
+      partNumber: String(p.partNumber ?? p.part_number ?? ""),
+      name: String(p.name ?? p.description ?? "Unknown Part"),
+      brand: String(p.brand ?? p.manufacturer ?? ""),
+      category: String(p.category ?? ""),
+      subcategory: String(p.subcategory ?? ""),
+      wholesalePriceCents: Math.round(
+        (typeof p.wholesaleCost === "number"
+          ? p.wholesaleCost
+          : typeof p.cost === "number"
+            ? p.cost
+            : 0) * 100,
+      ),
+      retailPriceCents: Math.round(
+        (typeof p.retailPrice === "number"
+          ? p.retailPrice
+          : typeof p.price === "number"
+            ? p.price
+            : 0) * 100,
+      ),
+      etaMinutes:
+        typeof p.etaMinutes === "number" ? p.etaMinutes : 0,
+      inStock: Boolean(p.inStock ?? (typeof p.qty === "number" && p.qty > 0)),
+      warehouseQty: typeof p.qty === "number" ? p.qty : 0,
+      source: String(p.source ?? p.supplier ?? ""),
+      sourceUrl: String(p.sourceUrl ?? p.url ?? ""),
+      availabilityType:
+        (typeof p.etaMinutes === "number" ? p.etaMinutes : 0) <= 120
+          ? ("SAME_DAY" as const)
+          : ("ORDER_ONLY" as const),
+      fitment: {
+        yearStart:
+          typeof p.yearStart === "number" ? p.yearStart : 1990,
+        yearEnd:
+          typeof p.yearEnd === "number" ? p.yearEnd : 2026,
+        makes: Array.isArray(p.makes) ? (p.makes as string[]) : [],
+        models: Array.isArray(p.models)
+          ? (p.models as string[])
+          : [],
+      },
+    }));
+  }
+
+  // --- Dev / test mock catalogue -------------------------------------------
   const { category, subcategory, query } = options;
 
   let results = MOCK_CATALOGUE.filter((e) => {
@@ -381,6 +499,7 @@ export async function searchParts(
     const availabilityType: "SAME_DAY" | "ORDER_ONLY" =
       e.etaMinutes <= 120 ? "SAME_DAY" : "ORDER_ONLY";
     // In production these would be real deep-link URLs from the supplier API.
+    // In dev / test these are search-page links for reference.
     const sourceUrl =
       e.source === "AutoZone"
         ? `https://www.autozone.com/search?q=${encodeURIComponent(e.partNumber)}`
@@ -417,8 +536,34 @@ export async function checkInventory(
   partNumber: string,
   warehouseId: string = "WH-MAIN",
 ): Promise<InventoryResult> {
-  await getSupplierToken();
+  const token = await getSupplierToken();
 
+  if (HAS_REAL_CREDENTIALS) {
+    const res = await fetch(
+      `${SUPPLIER_BASE_URL}/inventory/${encodeURIComponent(partNumber)}?warehouse=${encodeURIComponent(warehouseId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token.accessToken}`,
+          Accept: "application/json",
+        },
+      },
+    );
+
+    if (!res.ok) {
+      return { partNumber, warehouseId, inStock: false, qty: 0, etaMinutes: 0 };
+    }
+
+    const body = (await res.json()) as Record<string, unknown>;
+    return {
+      partNumber,
+      warehouseId,
+      inStock: Boolean(body.inStock ?? (typeof body.qty === "number" && body.qty > 0)),
+      qty: typeof body.qty === "number" ? body.qty : 0,
+      etaMinutes: typeof body.etaMinutes === "number" ? body.etaMinutes : 0,
+    };
+  }
+
+  // --- Dev / test mock -----------------------------------------------------
   const found = MOCK_CATALOGUE.find((e) => e.partNumber === partNumber);
 
   if (!found) {
@@ -448,7 +593,34 @@ export async function createPurchaseOrder(
   lines: PurchaseOrderLine[],
   deliveryType: DeliveryType,
 ): Promise<PurchaseOrderResult> {
-  await getSupplierToken();
+  const token = await getSupplierToken();
+
+  if (HAS_REAL_CREDENTIALS) {
+    const res = await fetch(`${SUPPLIER_BASE_URL}/purchase-orders`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ lines, deliveryType }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Supplier PO creation failed: HTTP ${res.status}`);
+    }
+
+    const body = (await res.json()) as Record<string, unknown>;
+    return {
+      poNumber: String(body.poNumber ?? body.po_number ?? ""),
+      status: (body.status as "CONFIRMED" | "PENDING" | "ERROR") ?? "PENDING",
+      deliveryType,
+      estimatedReadyAt: String(body.estimatedReadyAt ?? new Date().toISOString()),
+      lines,
+    };
+  }
+
+  // --- Dev / test mock PO --------------------------------------------------
 
   const totalMinutes =
     deliveryType === "WILL_CALL"
