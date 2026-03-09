@@ -129,6 +129,3 @@ export const config = {
     "/((?!_next/static|_next/image|favicon.ico|icons|manifest.json|sw.js|workbox-.*.js).*)",
   ],
 };
-
-// ---------------------------------------------------------------------------
-// Public route prefixes — never require authentication.
