@@ -22,7 +22,7 @@ import type { NextRequest } from "next/server";
 let _client: ReturnType<typeof twilio> | null = null;
 
 /**
- * Returns a lazily-initialised Twilio REST client.
+ * Returns a lazily-initialized Twilio REST client.
  * Throws if the required env vars are missing.
  */
 export function getTwilioClient(): ReturnType<typeof twilio> {

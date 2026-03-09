@@ -157,16 +157,11 @@ export async function GET(req: NextRequest) {
       `Thanks for choosing ${shopName}! If your car is running great, ` +
       `it would mean the world if you left a quick review: ${reviewLink}`;
 
-    try {
-      const smsResult = await sendSMS(phone, body);
-      if (smsResult.success) {
-        smsSent++;
-      } else {
-        errors.push(`[${order.id}] ${firstName}: ${smsResult.error}`);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Twilio error";
-      errors.push(`[${order.id}] ${firstName}: ${message}`);
+    const smsResult = await sendSMS(phone, body);
+    if (smsResult.success) {
+      smsSent++;
+    } else {
+      errors.push(`[${order.id}] ${firstName}: ${smsResult.error}`);
     }
   }
 
