@@ -11,6 +11,7 @@
  *                           session cookie (Next.js Server Component context)
  */
 
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@supabase/supabase-js";
@@ -57,7 +58,7 @@ function createCookieClient(authToken: string) {
 // authenticated user's ID. Returns null when no valid session is present.
 // ---------------------------------------------------------------------------
 
-export async function getSessionUserId(): Promise<string | null> {
+export const getSessionUserId = cache(async (): Promise<string | null> => {
   try {
     const cookieStore = await cookies();
 
@@ -98,7 +99,7 @@ export async function getSessionUserId(): Promise<string | null> {
   } catch {
     return null;
   }
-}
+});
 
 // ---------------------------------------------------------------------------
 // getUserRole
@@ -109,7 +110,7 @@ export async function getSessionUserId(): Promise<string | null> {
 // Returns null if the user has no role assignment.
 // ---------------------------------------------------------------------------
 
-export async function getUserRole(userId: string): Promise<UserRoleRow | null> {
+export const getUserRole = cache(async (userId: string): Promise<UserRoleRow | null> => {
   try {
     const admin = createAdminClient();
     const { data, error } = await admin
@@ -128,7 +129,7 @@ export async function getUserRole(userId: string): Promise<UserRoleRow | null> {
   } catch {
     return null;
   }
-}
+});
 
 // ---------------------------------------------------------------------------
 // verifySession

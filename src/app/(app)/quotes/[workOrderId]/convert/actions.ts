@@ -18,6 +18,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { revalidatePath } from "next/cache";
 import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
@@ -140,6 +141,7 @@ export async function convertDiagnosticToRepairQuote(
     // Non-fatal.
   }
 
+  revalidatePath("/jobs");
   return { workOrderId, creditedFeeCents };
 }
 

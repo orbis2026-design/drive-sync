@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
+import { revalidatePath } from "next/cache";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
 import { verifySession } from "@/lib/auth";
 
@@ -268,5 +269,6 @@ export async function processPayment(
     // Non-fatal — consumable deduction is best-effort.
   }
 
+  revalidatePath("/jobs");
   return { success: true, closedAt: closedAt.toISOString() };
 }

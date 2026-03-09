@@ -1,5 +1,51 @@
 import { NextRequest, NextResponse } from "next/server";
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
+
+type VehicleLookupResult =
+  | { found: true; make: string; model: string; year: number; oilCapacityQts: number | null; oilWeightOem: string | null; oilFilterPartNote: string }
+  | { found: false };
+
+const lookupGlobalVehicle = unstable_cache(
+  async (make: string, model: string, year: number): Promise<VehicleLookupResult> => {
+    try {
+      const vehicle = await prisma.globalVehicle.findFirst({
+        where: {
+          make: { equals: make, mode: "insensitive" },
+          model: { equals: model, mode: "insensitive" },
+          yearStart: { lte: year },
+          OR: [{ yearEnd: null }, { yearEnd: { gte: year } }],
+        },
+        select: {
+          make: true,
+          model: true,
+          yearStart: true,
+          oilCapacityQts: true,
+          oilWeightOem: true,
+        },
+      });
+
+      if (!vehicle) {
+        return { found: false };
+      }
+
+      return {
+        found: true,
+        make: vehicle.make,
+        model: vehicle.model,
+        year,
+        oilCapacityQts: vehicle.oilCapacityQts,
+        oilWeightOem: vehicle.oilWeightOem,
+        oilFilterPartNote: "See OEM filter lookup",
+      };
+    } catch (err) {
+      console.error("[public-lookup] DB error:", err);
+      return { found: false };
+    }
+  },
+  ["global-vehicle-lookup"],
+  { revalidate: 86400, tags: ["vehicles"] },
+);
 
 /**
  * GET /api/lexicon/public-lookup
@@ -26,38 +72,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ found: false });
   }
 
-  try {
-    const vehicle = await prisma.globalVehicle.findFirst({
-      where: {
-        make: { equals: make, mode: "insensitive" },
-        model: { equals: model, mode: "insensitive" },
-        yearStart: { lte: year },
-        OR: [{ yearEnd: null }, { yearEnd: { gte: year } }],
-      },
-      select: {
-        make: true,
-        model: true,
-        yearStart: true,
-        oilCapacityQts: true,
-        oilWeightOem: true,
-      },
-    });
-
-    if (!vehicle) {
-      return NextResponse.json({ found: false });
-    }
-
-    return NextResponse.json({
-      found: true,
-      make: vehicle.make,
-      model: vehicle.model,
-      year,
-      oilCapacityQts: vehicle.oilCapacityQts,
-      oilWeightOem: vehicle.oilWeightOem,
-      oilFilterPartNote: "See OEM filter lookup",
-    });
-  } catch (err) {
-    console.error("[public-lookup] DB error:", err);
-    return NextResponse.json({ found: false });
-  }
+  const result = await lookupGlobalVehicle(make, model, year);
+  return NextResponse.json(result);
 }
