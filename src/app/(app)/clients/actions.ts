@@ -18,23 +18,28 @@ export type { MaintenanceItem, MaintenanceBadge };
 export async function checkMaintenanceDue(
   vehicleId: string
 ): Promise<MaintenanceBadge[] | { error: string }> {
-  const { tenantId } = await verifySession();
+  try {
+    const { tenantId } = await verifySession();
 
-  const vehicle = await prisma.vehicle.findFirst({
-    where: { id: vehicleId, tenantId },
-    include: { globalVehicle: true },
-  });
+    const vehicle = await prisma.vehicle.findFirst({
+      where: { id: vehicleId, tenantId },
+      include: { globalVehicle: true },
+    });
 
-  if (
-    !vehicle ||
-    !vehicle.globalVehicle ||
-    vehicle.mileageIn == null
-  ) {
-    return [];
+    if (
+      !vehicle ||
+      !vehicle.globalVehicle ||
+      vehicle.mileageIn == null
+    ) {
+      return [];
+    }
+
+    const schedule = vehicle.globalVehicle
+      .maintenanceScheduleJson as MaintenanceItem[];
+
+    return computeMaintenanceBadges(vehicle.mileageIn, schedule);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Database error.";
+    return { error: message };
   }
-
-  const schedule = vehicle.globalVehicle
-    .maintenanceScheduleJson as MaintenanceItem[];
-
-  return computeMaintenanceBadges(vehicle.mileageIn, schedule);
 }
