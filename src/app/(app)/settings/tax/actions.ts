@@ -8,22 +8,12 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import type { TaxMatrix } from "@/lib/math-engine";
-import { getSessionUserId, getUserRole } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 export async function saveTaxMatrix(
   matrix: TaxMatrix,
 ): Promise<{ error?: string }> {
-  // Resolve the tenant ID from the authenticated session.
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return { error: "You must be signed in to save the tax matrix." };
-  }
-
-  const roleRow = await getUserRole(userId);
-  const tenantId = roleRow?.tenantId;
-  if (!tenantId) {
-    return { error: "Tenant not configured." };
-  }
+  const { tenantId } = await verifySession();
 
   try {
     await prisma.tenant.update({
@@ -48,16 +38,7 @@ export async function saveTaxSettings(params: {
   partsTaxRate: number;
   laborTaxRate: number;
 }): Promise<{ error?: string }> {
-  const userId = await getSessionUserId();
-  if (!userId) {
-    return { error: "You must be signed in to save tax settings." };
-  }
-
-  const roleRow = await getUserRole(userId);
-  const tenantId = roleRow?.tenantId;
-  if (!tenantId) {
-    return { error: "Tenant not configured." };
-  }
+  const { tenantId } = await verifySession();
 
   try {
     // Fetch existing taxMatrixJson to merge the new rates in without losing env fees.

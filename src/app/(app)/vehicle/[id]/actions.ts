@@ -1,7 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 import type { QuickSpecsKitItem } from "@/lib/parts-catalog";
 
 // ---------------------------------------------------------------------------
@@ -41,8 +41,7 @@ export async function addQuickSpecsKitToWorkOrder(
     return { error: "Kit is empty." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   const adminDb = createAdminClient();
 

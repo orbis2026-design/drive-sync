@@ -1,7 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
 
@@ -36,8 +36,7 @@ export async function uploadAndParseReceipt(
   if (!file) return { error: "No receipt image provided." };
 
   const supabase = createAdminClient();
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   // ── Upload image to Supabase Storage ──────────────────────────────────────
   const fileName = `${tenantId}/${Date.now()}-${file.name}`;
@@ -139,8 +138,7 @@ export async function confirmExpense(payload: {
   if (!vendor.trim()) return { error: "Vendor name is required." };
 
   const supabase = createAdminClient();
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   const { data, error } = await supabase
     .from("expenses")
@@ -164,8 +162,7 @@ export async function fetchExpenses(): Promise<
   { data: ExpenseRecord[] } | { error: string }
 > {
   const supabase = createAdminClient();
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   const { data, error } = await supabase
     .from("expenses")

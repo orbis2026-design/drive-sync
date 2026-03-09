@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -57,8 +57,7 @@ export type AnalyticsData = {
 export async function fetchAnalytics(): Promise<
   { data: AnalyticsData } | { data: null; error: string }
 > {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { data: null, error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     // --- MTD window ---

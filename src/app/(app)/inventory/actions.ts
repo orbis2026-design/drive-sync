@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,8 +25,7 @@ export type ConsumableRow = {
 export async function fetchConsumables(): Promise<
   { data: ConsumableRow[] } | { error: string }
 > {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     const rows = await prisma.consumable.findMany({
@@ -67,8 +66,7 @@ export async function restockConsumable(
   if (!consumableId) return { error: "Missing consumable ID." };
   if (isNaN(units) || units === 0) return { error: "Invalid quantity." };
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     const row = await prisma.consumable.findFirst({
@@ -78,6 +76,7 @@ export async function restockConsumable(
     if (!row) return { error: "Consumable not found." };
 
     const newStock = Math.max(0, row.currentStock + units);
+    // SECURITY: Ownership verified by findFirst above — safe to update by ID.
     await prisma.consumable.update({
       where: { id: consumableId },
       data: { currentStock: newStock },
@@ -102,8 +101,7 @@ export async function createConsumable(payload: {
   lowStockThreshold: number;
   costPerUnitCents: number;
 }): Promise<{ success: true; id: string } | { error: string }> {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
   if (!payload.name || !payload.unit) return { error: "Name and unit are required." };
 
   try {
@@ -125,3 +123,4 @@ export async function createConsumable(payload: {
     return { error: message };
   }
 }
+

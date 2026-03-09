@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,8 +54,7 @@ export type JobCard = {
 export async function fetchActiveJobs(): Promise<
   { data: JobCard[] } | { data: null; error: string }
 > {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { data: null, error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     const rows = await prisma.workOrder.findMany({

@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { BLAST_AUDIENCES } from "./constants";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 import { sendSMS } from "@/lib/twilio";
 
 // ---------------------------------------------------------------------------
@@ -57,8 +57,7 @@ const LOOK_AHEAD_MILES = 3_000;
 export async function fetchQueuedMessages(): Promise<
   { data: QueuedMessage[] } | { error: string }
 > {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     const rows = await prisma.outboundCampaign.findMany({
@@ -102,8 +101,7 @@ export async function fetchQueuedMessages(): Promise<
 export async function fetchRetentionQueue(): Promise<
   { data: RetentionQueueItem[] } | { error: string }
 > {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     const vehicles = await prisma.vehicle.findMany({
@@ -201,8 +199,7 @@ export async function fetchRetentionQueue(): Promise<
 export async function fetchSentLog(): Promise<
   { data: SentLogItem[] } | { error: string }
 > {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     const rows = await prisma.outboundCampaign.findMany({
@@ -243,8 +240,7 @@ export async function fetchSentLog(): Promise<
 export async function fetchAutoRetentionStatus(): Promise<
   { enabled: boolean } | { error: string }
 > {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     const tenant = await prisma.tenant.findUnique({
@@ -266,8 +262,7 @@ export async function fetchAutoRetentionStatus(): Promise<
 export async function toggleAutoRetention(
   enabled: boolean,
 ): Promise<{ success: true } | { error: string }> {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     await prisma.tenant.update({
@@ -290,8 +285,7 @@ export async function toggleAutoRetention(
 export async function approveAndSendMessage(
   id: string,
 ): Promise<{ success: true } | { error: string }> {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     const campaign = await prisma.outboundCampaign.findFirst({
@@ -335,8 +329,7 @@ export async function approveAndSendMessage(
 export async function discardMessage(
   id: string,
 ): Promise<{ success: true } | { error: string }> {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     const campaign = await prisma.outboundCampaign.findFirst({
@@ -369,8 +362,7 @@ export async function sendRetentionSms(
   phone: string,
   message: string,
 ): Promise<{ success: true } | { error: string }> {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     // Verify client hasn't opted out.
@@ -420,8 +412,7 @@ export async function sendBlastCampaign(
   if (!BLAST_AUDIENCES.find((a) => a.value === audience))
     return { error: "Invalid audience selection." };
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     // Determine eligible clients — always exclude opted-out clients.

@@ -1,7 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 import type { RepairStep } from "./page";
 
 /**
@@ -18,8 +18,7 @@ export async function appendStepsToWorkOrder(
     return { error: "No repair steps to append." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   const supabase = createAdminClient();
 

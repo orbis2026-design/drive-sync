@@ -49,7 +49,7 @@ export async function saveOnboardingSettings(
 ): Promise<ActionResult> {
   const userId = await getSessionUserId();
   if (!userId) {
-    return { error: "You must be signed in to complete onboarding." };
+    throw new Error("UNAUTHORIZED");
   }
 
   const admin = createAdminClient();

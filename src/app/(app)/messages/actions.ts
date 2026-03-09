@@ -1,14 +1,13 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 export async function sendMessage(payload: {
   clientId: string | null;
   body: string;
 }): Promise<{ success: true } | { error: string }> {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
   if (!payload.body.trim()) return { error: "Message body cannot be empty." };
 
   const supabase = createAdminClient();
@@ -28,9 +27,8 @@ export async function sendMessage(payload: {
 export async function fetchClients(): Promise<
   { data: { id: string; first_name: string; last_name: string; phone: string | null }[] } | { error: string }
 > {
+  const { tenantId } = await verifySession();
   const supabase = createAdminClient();
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
 
   const { data, error } = await supabase
     .from("clients")
@@ -45,5 +43,10 @@ export async function fetchClients(): Promise<
 
 /** Returns the authenticated user's tenant ID for use by client components. */
 export async function getSessionTenantId(): Promise<string | null> {
-  return getTenantId();
+  try {
+    const { tenantId } = await verifySession();
+    return tenantId;
+  } catch {
+    return null;
+  }
 }

@@ -36,7 +36,7 @@ export default function RegisterPage() {
       return;
     }
 
-    const result = await provisionTenant(data.user.id, email);
+    const result = await provisionTenant();
     if ("error" in result) {
       setStatus("error");
       setErrorMsg(result.error);

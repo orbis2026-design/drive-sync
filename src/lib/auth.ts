@@ -131,6 +131,27 @@ export async function getUserRole(userId: string): Promise<UserRoleRow | null> {
 }
 
 // ---------------------------------------------------------------------------
+// verifySession
+//
+// Throw-based auth helper for server actions. Calls getSessionUserId() and
+// getUserRole() and throws an UNAUTHORIZED error if either returns null.
+// Returns { userId, tenantId } on success.
+// ---------------------------------------------------------------------------
+
+export async function verifySession(): Promise<{
+  userId: string;
+  tenantId: string;
+}> {
+  const userId = await getSessionUserId();
+  if (!userId) throw new Error("UNAUTHORIZED");
+
+  const row = await getUserRole(userId);
+  if (!row?.tenantId) throw new Error("UNAUTHORIZED");
+
+  return { userId, tenantId: row.tenantId };
+}
+
+// ---------------------------------------------------------------------------
 // getTenantId
 //
 // Convenience wrapper that resolves the authenticated user's tenant ID in

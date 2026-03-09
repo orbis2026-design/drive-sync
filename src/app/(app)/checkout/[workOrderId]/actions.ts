@@ -3,7 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -57,8 +57,7 @@ export async function getCheckoutData(
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   let workOrder: {
     id: string;
@@ -166,8 +165,7 @@ export async function processPayment(
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   // --- Fetch work order to validate state ----------------------------------
   let workOrder: { id: string; status: string } | null = null;

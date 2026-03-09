@@ -1,7 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,8 +55,7 @@ export async function syncInspection(
     return { error: "Cannot sync inspection: work order ID is missing." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   const adminDb = createAdminClient();
 
@@ -86,8 +85,7 @@ export async function saveVoiceNote(
     return { error: "Cannot save voice note: work order ID is missing." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   const adminDb = createAdminClient();
 
@@ -130,8 +128,7 @@ export async function saveChecklist(
     return { error: "Cannot save checklist: work order ID is missing." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   const adminDb = createAdminClient();
   const { error } = await adminDb
