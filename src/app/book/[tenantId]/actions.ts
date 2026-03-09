@@ -87,6 +87,15 @@ export async function submitBooking(
       } catch {
         // Best-effort cleanup — the work-order error is still returned below.
       }
+    // Compensating delete: remove the client we just created to avoid an
+    // orphaned record with no work order attached.
+    try {
+      await admin.from("clients").delete().eq("id", clientData.id);
+    } catch (deleteErr) {
+      console.error(
+        `Failed to delete orphaned client ${clientData.id} after work order insert failure:`,
+        deleteErr,
+      );
     }
     return {
       error: `Failed to create work order: ${woError?.message ?? "unknown error"}`,

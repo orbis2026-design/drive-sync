@@ -200,15 +200,55 @@ export async function processPayment(
 
   const closedAt = new Date();
 
-  // --- Persist via Prisma --------------------------------------------------
+  // --- Persist via Prisma (atomic) -----------------------------------------
+  // The work order status update and the consumable deduction are wrapped in a
+  // single interactive transaction so they either both commit or both roll back.
+  // This prevents inventory from drifting when the deduction fails after the
+  // status write, and eliminates the lost-update race on currentStock.
   try {
-    await prisma.workOrder.updateMany({
-      where: { id: workOrderId, tenantId },
-      data: {
-        status: "PAID",
-        closedAt,
-        paymentMethod: storedMethod,
-      },
+    await prisma.$transaction(async (tx) => {
+      // 1. Mark work order as PAID.
+      await tx.workOrder.updateMany({
+        where: { id: workOrderId, tenantId },
+        data: {
+          status: "PAID",
+          closedAt,
+          paymentMethod: storedMethod,
+        },
+      });
+
+      // 2. Find the vehicle's oilType inside the same transaction.
+      const wo = await tx.workOrder.findFirst({
+        where: { id: workOrderId, tenantId },
+        select: {
+          vehicle: { select: { oilType: true } },
+        },
+      });
+
+      const oilType = wo?.vehicle?.oilType ?? null;
+
+      if (oilType) {
+        // 3. Find the matching consumable row by name similarity (case-insensitive prefix match).
+        const consumable = await tx.consumable.findFirst({
+          where: {
+            tenantId,
+            name: { contains: oilType.split(" ")[0], mode: "insensitive" },
+          },
+          select: { id: true, currentStock: true },
+        });
+
+        if (consumable) {
+          // 4. Deduct stock atomically within the same transaction.
+          const newStock = Math.max(
+            0,
+            consumable.currentStock - DEFAULT_OIL_DEDUCTION_QUARTS,
+          );
+          await tx.consumable.update({
+            where: { id: consumable.id },
+            data: { currentStock: newStock },
+          });
+        }
+      }
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error.";
@@ -216,6 +256,7 @@ export async function processPayment(
   }
 
   // --- Mirror to Supabase work_orders (best-effort) ------------------------
+  // Intentionally outside the transaction — this is a best-effort sync.
   try {
     const adminDb = createAdminClient();
     await adminDb
