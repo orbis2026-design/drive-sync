@@ -65,10 +65,10 @@ export function Sidebar({ role, tabs }: SidebarProps) {
   return (
     <aside
       aria-label="Desktop sidebar navigation"
-      className="hidden lg:flex lg:flex-col w-64 bg-gray-900 border-r border-gray-700 h-screen sticky top-0 overflow-y-auto"
+      className="hidden lg:flex lg:flex-col w-64 bg-gray-900 border-r border-gray-800 h-screen sticky top-0 overflow-y-auto"
     >
       {/* Brand */}
-      <div className="flex items-center justify-between px-5 h-16 border-b border-gray-700 flex-shrink-0">
+      <div className="flex items-center justify-between px-5 h-16 border-b border-gray-800 flex-shrink-0">
         <Link
           href="/jobs"
           className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 rounded"
@@ -118,15 +118,15 @@ export function Sidebar({ role, tabs }: SidebarProps) {
                 className={[
                   "flex items-center gap-3 px-5 py-3 text-sm font-semibold transition-colors",
                   isActive
-                    ? "text-yellow-400 bg-gray-800"
-                    : "text-gray-400 hover:text-white hover:bg-gray-800",
+                    ? "bg-blue-600/10 text-blue-500 border-r-2 border-blue-500"
+                    : "text-gray-400 hover:text-gray-100 hover:bg-gray-800/50",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-inset",
                 ].join(" ")}
               >
                 <tab.icon
                   className={[
                     "h-5 w-5 flex-shrink-0",
-                    isActive ? "text-yellow-400" : "text-gray-400",
+                    isActive ? "text-blue-500" : "text-gray-400",
                   ].join(" ")}
                 />
                 {tab.label}
@@ -137,7 +137,7 @@ export function Sidebar({ role, tabs }: SidebarProps) {
       </ul>
 
       {/* User profile placeholder */}
-      <div className="border-t border-gray-700 px-5 py-4 flex-shrink-0">
+      <div className="border-t border-gray-800 px-5 py-4 flex-shrink-0">
         <button
           type="button"
           className="w-full flex items-center gap-3 rounded-xl p-2 text-left hover:bg-gray-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"

@@ -69,20 +69,20 @@ export default async function AnalyticsPage() {
 
   return (
     <div
-      className="flex flex-col min-h-full bg-gray-950"
+      className="flex flex-col min-h-full"
       aria-label="Financials dashboard"
     >
       {/* Error banner */}
       {error && (
         <div
           role="alert"
-          className="mx-4 mb-4 rounded-2xl bg-red-950 border border-red-700 px-4 py-3 text-sm text-red-400"
+          className="mb-4 rounded-2xl bg-red-950 border border-red-700 px-4 py-3 text-sm text-red-400"
         >
           Could not load data: {error}
         </div>
       )}
 
-      <div className="flex-1 px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+80px)] sm:pb-6 flex flex-col gap-4">
+      <div className="flex-1 flex flex-col gap-4">
         {data ? (
           <>
             {/* KPI grid — 2 × 2 on mobile, 4 across on large screens */}

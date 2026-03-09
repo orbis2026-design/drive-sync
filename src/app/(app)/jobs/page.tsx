@@ -25,19 +25,21 @@ export default async function JobsPage() {
   const jobs = "data" in result && result.data != null ? result.data : [];
 
   return (
-    <div className="flex flex-col min-h-full">
+    <div className="flex flex-col gap-4 min-h-full">
       {/* Error banner — shown if DB query failed but we still render the board */}
       {"error" in result && (
         <div
           role="alert"
-          className="mx-4 mb-2 rounded-xl bg-danger-950 border border-danger-700 px-4 py-3 text-sm text-danger-400"
+          className="rounded-xl bg-danger-950 border border-danger-700 px-4 py-3 text-sm text-danger-400"
         >
           Could not load jobs: {result.error}
         </div>
       )}
 
-      {/* Interactive board */}
-      <JobsBoard jobs={jobs} />
+      {/* Interactive board — elevated card */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-6 shadow-sm">
+        <JobsBoard jobs={jobs} />
+      </div>
     </div>
   );
 }
