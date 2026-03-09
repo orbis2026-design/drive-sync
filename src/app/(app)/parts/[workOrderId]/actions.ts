@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -349,6 +350,9 @@ export async function lookupParts(
     return { error: "Missing work order ID." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   const q = query.trim();
   if (q.length < 2) {
     return { error: "Search query must be at least 2 characters." };
@@ -357,8 +361,8 @@ export async function lookupParts(
   // Fetch vehicle context to confirm the work order exists; make/model
   // would be used for fitment checks in a production supplier API call.
   try {
-    const workOrder = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
+    const workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
       select: { id: true },
     });
     if (!workOrder) {
@@ -391,12 +395,16 @@ export async function savePartsToWorkOrder(
     return { error: "Cannot save parts: the parts list is empty." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   const adminDb = createAdminClient();
 
   const { error } = await adminDb
     .from("work_orders")
     .update({ parts_json: parts })
-    .eq("id", workOrderId);
+    .eq("id", workOrderId)
+    .eq("tenant_id", tenantId);
 
   if (error) {
     return { error: `Failed to save parts: ${error.message}` };

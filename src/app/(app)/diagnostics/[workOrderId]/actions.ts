@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -292,6 +293,9 @@ export async function lookupTSBs(
     return { error: "Missing work order ID." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   const code = obdCode.trim().toUpperCase();
   if (!/^[PBCU][0-3][0-9]{3}$/.test(code)) {
     return {
@@ -306,8 +310,8 @@ export async function lookupTSBs(
   let year = new Date().getFullYear();
 
   try {
-    const workOrder = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
+    const workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
       include: { vehicle: { select: { make: true, model: true, year: true } } },
     });
 
@@ -340,9 +344,12 @@ export async function addToQuote(
     return { error: "Missing work order ID." };
   }
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   try {
-    const existing = await prisma.workOrder.findUnique({
-      where: { id: workOrderId },
+    const existing = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
       select: { laborCents: true, partsCents: true, notes: true },
     });
 
@@ -355,8 +362,8 @@ export async function addToQuote(
       ? `${existing.notes}\n${tsbNote}`
       : tsbNote;
 
-    await prisma.workOrder.update({
-      where: { id: workOrderId },
+    await prisma.workOrder.updateMany({
+      where: { id: workOrderId, tenantId },
       data: {
         laborCents: existing.laborCents + tsb.estimatedLaborCostCents,
         partsCents: existing.partsCents + tsb.estimatedPartsCostCents,

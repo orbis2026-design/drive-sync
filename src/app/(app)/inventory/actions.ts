@@ -67,9 +67,12 @@ export async function restockConsumable(
   if (!consumableId) return { error: "Missing consumable ID." };
   if (isNaN(units) || units === 0) return { error: "Invalid quantity." };
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   try {
-    const row = await prisma.consumable.findUnique({
-      where: { id: consumableId },
+    const row = await prisma.consumable.findFirst({
+      where: { id: consumableId, tenantId },
       select: { currentStock: true },
     });
     if (!row) return { error: "Consumable not found." };

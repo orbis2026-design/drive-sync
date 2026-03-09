@@ -290,9 +290,12 @@ export async function toggleAutoRetention(
 export async function approveAndSendMessage(
   id: string,
 ): Promise<{ success: true } | { error: string }> {
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   try {
-    const campaign = await prisma.outboundCampaign.findUnique({
-      where: { id },
+    const campaign = await prisma.outboundCampaign.findFirst({
+      where: { id, tenantId },
       include: { client: { select: { opted_out_sms: true } } },
     });
     if (!campaign) return { error: "Message not found." };
@@ -311,8 +314,8 @@ export async function approveAndSendMessage(
       }
     }
 
-    await prisma.outboundCampaign.update({
-      where: { id },
+    await prisma.outboundCampaign.updateMany({
+      where: { id, tenantId },
       data: { status: "SENT", sentAt: new Date() },
     });
 
@@ -332,16 +335,19 @@ export async function approveAndSendMessage(
 export async function discardMessage(
   id: string,
 ): Promise<{ success: true } | { error: string }> {
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   try {
-    const campaign = await prisma.outboundCampaign.findUnique({
-      where: { id },
+    const campaign = await prisma.outboundCampaign.findFirst({
+      where: { id, tenantId },
     });
     if (!campaign) return { error: "Message not found." };
     if (campaign.status !== "QUEUED")
       return { error: "Message is no longer queued." };
 
-    await prisma.outboundCampaign.update({
-      where: { id },
+    await prisma.outboundCampaign.updateMany({
+      where: { id, tenantId },
       data: { status: "DISCARDED" },
     });
 
@@ -368,8 +374,8 @@ export async function sendRetentionSms(
 
   try {
     // Verify client hasn't opted out.
-    const client = await prisma.client.findUnique({
-      where: { id: clientId },
+    const client = await prisma.client.findFirst({
+      where: { id: clientId, tenantId },
       select: { opted_out_sms: true },
     });
     if (client?.opted_out_sms) {
