@@ -290,13 +290,17 @@ function LaneAccordion({
 function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center px-8 py-24 text-center">
-      <span className="text-6xl mb-4" aria-hidden="true">
-        🔧
-      </span>
-      <p className="text-2xl font-bold text-white mb-2">All caught up!</p>
-      <p className="text-lg text-gray-400">
-        No active jobs right now. Scan a VIN to start a new work order.
+      <span className="text-6xl mb-4" aria-hidden="true">🔧</span>
+      <p className="text-2xl font-bold text-white mb-2">No active jobs</p>
+      <p className="text-lg text-gray-400 mb-8">
+        Scan a VIN or manually enter a vehicle to start your first work order.
       </p>
+      <Link
+        href="/intake"
+        className="px-6 py-3 rounded-2xl bg-brand-400 text-gray-950 font-bold text-sm hover:bg-brand-300 active:scale-95 transition-all"
+      >
+        + New Intake
+      </Link>
     </div>
   );
 }

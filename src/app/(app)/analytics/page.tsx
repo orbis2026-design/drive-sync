@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { fetchAnalytics } from "./actions";
 import { WeeklyRevenueChart } from "./AnalyticsClient";
 
@@ -184,11 +185,17 @@ export default async function AnalyticsPage() {
               📊
             </span>
             <p className="text-2xl font-black text-white mb-2">
-              No data yet
+              No revenue data yet
             </p>
-            <p className="text-base text-gray-400">
-              Financial metrics will appear once work orders are marked as paid.
+            <p className="text-base text-gray-400 mb-8">
+              Complete your first job to see revenue trends, charts, and insights here.
             </p>
+            <Link
+              href="/intake"
+              className="px-6 py-3 rounded-2xl bg-brand-400 text-gray-950 font-bold text-sm hover:bg-brand-300 active:scale-95 transition-all"
+            >
+              + New Intake
+            </Link>
           </div>
         )}
       </div>
