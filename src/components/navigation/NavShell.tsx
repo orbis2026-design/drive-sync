@@ -174,6 +174,7 @@ interface NavTab {
   label: string;
   icon: React.FC<{ className?: string }>;
   featureKey?: string;
+  hideOnMobile?: boolean;
 }
 
 const FIELD_TECH_TABS: NavTab[] = [
@@ -185,14 +186,14 @@ const FIELD_TECH_TABS: NavTab[] = [
 ];
 
 const SHOP_OWNER_TABS: NavTab[] = [
-  { href: "/jobs",          label: "Dispatch",      icon: KanbanIcon,  },
-  { href: "/dispatch/qa",   label: "QA Inbox",      icon: CheckIcon    },
-  { href: "/clients",       label: "Clients",       icon: ClientsIcon  },
-  { href: "/fleet/billing", label: "Fleet Billing", icon: FleetIcon,   featureKey: "fleet" },
-  { href: "/parts/catalog", label: "Nexpart PO",    icon: ReceiptIcon  },
-  { href: "/analytics",     label: "Financials",    icon: AnalyticsIcon},
-  { href: "/accounting",    label: "Stripe Payouts",icon: DollarIcon   },
-  { href: "/settings",      label: "Settings",      icon: SettingsIcon },
+  { href: "/jobs",          label: "Dispatch",      icon: KanbanIcon,                          },
+  { href: "/dispatch/qa",   label: "QA Inbox",      icon: CheckIcon,    hideOnMobile: true     },
+  { href: "/clients",       label: "Clients",       icon: ClientsIcon,                         },
+  { href: "/fleet/billing", label: "Fleet Billing", icon: FleetIcon,    featureKey: "fleet", hideOnMobile: true },
+  { href: "/parts/catalog", label: "Nexpart PO",    icon: ReceiptIcon,                         },
+  { href: "/analytics",     label: "Financials",    icon: AnalyticsIcon,                       },
+  { href: "/accounting",    label: "Stripe Payouts",icon: DollarIcon,   hideOnMobile: true     },
+  { href: "/settings",      label: "Settings",      icon: SettingsIcon,                        },
 ];
 
 const LS_FEATURES_KEY = "ds_features";
@@ -238,7 +239,7 @@ export function NavShell({ role }: NavShellProps) {
   return (
     <>
       <Sidebar role={role} tabs={tabs} />
-      <BottomNav tabs={tabs} />
+      <BottomNav tabs={tabs.filter((t) => !t.hideOnMobile).slice(0, 5)} />
     </>
   );
 }
