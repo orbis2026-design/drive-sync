@@ -39,6 +39,17 @@ function base64ToBuffer(base64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
+/** Convert a base64url string (used by @simplewebauthn/server) to an ArrayBuffer. */
+function base64urlToBuffer(base64url: string): ArrayBuffer {
+  // Replace base64url chars with standard base64 chars and add padding.
+  const base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(
+    base64.length + ((4 - (base64.length % 4)) % 4),
+    "=",
+  );
+  return base64ToBuffer(padded);
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type AuthResult =
@@ -150,8 +161,15 @@ export async function registerPasskey(): Promise<AuthResult> {
 
 /**
  * Authenticates using a stored passkey.
- * On success, exchanges the verified assertion for a Supabase session via a
- * custom endpoint (`/api/auth/passkey-verify`), which issues a JWT.
+ *
+ * Flow:
+ *  1. Fetches a server-issued challenge from GET /api/auth/webauthn.
+ *  2. Invokes navigator.credentials.get() with the server challenge.
+ *  3. Posts the assertion to POST /api/auth/webauthn, which verifies it and
+ *     returns a one-time token_hash tied to the user's email.
+ *  4. Exchanges the token_hash for a Supabase session via verifyOtp(), which
+ *     causes @supabase/ssr to write the session cookies that the middleware
+ *     requires on every subsequent request.
  */
 export async function signInWithPasskey(): Promise<AuthResult> {
   if (!window.PublicKeyCredential) {
@@ -161,13 +179,34 @@ export async function signInWithPasskey(): Promise<AuthResult> {
     };
   }
 
-  const challenge = crypto.getRandomValues(new Uint8Array(32));
+  // --- Step 1: Fetch a server-issued challenge ----------------------------
+  let challengeId: string;
+  let challengeBuffer: ArrayBuffer;
+  try {
+    const challengeRes = await fetch("/api/auth/webauthn");
+    if (!challengeRes.ok) {
+      return { success: false, error: "Failed to fetch WebAuthn challenge." };
+    }
+    const { challengeId: id, challenge } = (await challengeRes.json()) as {
+      challengeId: string;
+      challenge: string;
+    };
+    challengeId = id;
+    challengeBuffer = base64urlToBuffer(challenge);
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error ? err.message : "Failed to fetch WebAuthn challenge.",
+    };
+  }
 
+  // --- Step 2: Prompt the user to authenticate with their passkey ----------
   let assertion: PublicKeyCredential;
   try {
     assertion = (await navigator.credentials.get({
       publicKey: {
-        challenge,
+        challenge: challengeBuffer,
         rpId: window.location.hostname,
         userVerification: "required",
         timeout: 60_000,
@@ -183,11 +222,12 @@ export async function signInWithPasskey(): Promise<AuthResult> {
 
   const assertionResponse = assertion.response as AuthenticatorAssertionResponse;
 
-  // Send the assertion to our verification endpoint
-  const res = await fetch("/api/auth/passkey-verify", {
+  // --- Step 3: Verify the assertion server-side and receive a session token -
+  const res = await fetch("/api/auth/webauthn", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      challengeId,
       credentialId: bufferToBase64(assertion.rawId),
       authenticatorData: bufferToBase64(assertionResponse.authenticatorData),
       clientDataJSON: bufferToBase64(assertionResponse.clientDataJSON),
@@ -206,8 +246,36 @@ export async function signInWithPasskey(): Promise<AuthResult> {
     };
   }
 
-  const { userId } = (await res.json()) as { userId: string };
-  return { success: true, userId };
+  const data = (await res.json()) as {
+    verified: boolean;
+    session?: { token_hash: string; email: string };
+    error?: string;
+  };
+
+  if (!data.verified || !data.session) {
+    return {
+      success: false,
+      error: data.error ?? "Passkey verification failed.",
+    };
+  }
+
+  // --- Step 4: Exchange token for a Supabase session ----------------------
+  // verifyOtp() causes @supabase/ssr to write session cookies, making the
+  // session visible to the middleware and all server-side code.
+  const supabase = getBrowserClient();
+  const { data: otpData, error: otpError } = await supabase.auth.verifyOtp({
+    token_hash: data.session.token_hash,
+    type: "magiclink",
+  });
+
+  if (otpError || !otpData.user) {
+    return {
+      success: false,
+      error: otpError?.message ?? "Failed to establish session.",
+    };
+  }
+
+  return { success: true, userId: otpData.user.id };
 }
 
 // ─── Sign out ─────────────────────────────────────────────────────────────────
