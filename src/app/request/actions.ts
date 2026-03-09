@@ -50,6 +50,22 @@ export async function submitIntakeRequest(
     return { error: "Missing required fields." };
   }
 
+  // Validate that the provided tenantId actually exists in the tenants table
+  // to prevent malicious actors from injecting work orders into arbitrary tenants.
+  try {
+    const adminDb = createAdminClient();
+    const { data: tenant, error: tenantError } = await adminDb
+      .from("tenants")
+      .select("id")
+      .eq("id", payload.tenantId)
+      .single();
+    if (tenantError || !tenant) {
+      return { error: "Invalid tenant." };
+    }
+  } catch {
+    return { error: "Unable to verify tenant." };
+  }
+
   // Build the photo URL from Supabase Storage public URL if path supplied.
   let intakePhotoUrl: string | null = null;
   if (payload.photoPath) {

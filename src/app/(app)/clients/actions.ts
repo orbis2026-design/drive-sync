@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { getTenantId } from "@/lib/auth";
 import {
   computeMaintenanceBadges,
   type MaintenanceItem,
@@ -16,9 +17,12 @@ export type { MaintenanceItem, MaintenanceBadge };
 // ---------------------------------------------------------------------------
 export async function checkMaintenanceDue(
   vehicleId: string
-): Promise<MaintenanceBadge[]> {
-  const vehicle = await prisma.vehicle.findUnique({
-    where: { id: vehicleId },
+): Promise<MaintenanceBadge[] | { error: string }> {
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
+  const vehicle = await prisma.vehicle.findFirst({
+    where: { id: vehicleId, tenantId },
     include: { globalVehicle: true },
   });
 

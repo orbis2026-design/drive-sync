@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { getTenantId } from "@/lib/auth";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
 
 // ---------------------------------------------------------------------------
@@ -52,9 +53,12 @@ export async function fetchFleetData(
 ): Promise<{ data: FleetData } | { error: string }> {
   if (!clientId) return { error: "Missing client ID." };
 
+  const tenantId = await getTenantId();
+  if (!tenantId) return { error: "Authentication required." };
+
   try {
-    const client = await prisma.client.findUnique({
-      where: { id: clientId },
+    const client = await prisma.client.findFirst({
+      where: { id: clientId, tenantId },
       select: {
         id: true,
         firstName: true,
