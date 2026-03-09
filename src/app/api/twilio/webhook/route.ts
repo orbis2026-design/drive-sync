@@ -1,23 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { validateTwilioWebhook } from "@/lib/twilio";
 
 /**
- * Simulated Twilio inbound SMS webhook.
+ * Twilio inbound SMS webhook.
  *
  * Twilio sends a POST request with URL-encoded form data when a client
- * replies to an outbound SMS. This handler parses the payload and inserts
- * the inbound message into the `messages` table, triggering Supabase Realtime
- * for any subscribed mechanics.
+ * replies to an outbound SMS. This handler verifies the Twilio signature,
+ * parses the payload and inserts the inbound message into the `messages`
+ * table, triggering Supabase Realtime for any subscribed mechanics.
  *
- * In a real deployment you would verify the Twilio signature here using
- * the TWILIO_AUTH_TOKEN env var and the twilio library's
- * `validateRequest` helper. The stub below skips that step so the
- * sandbox can exercise the happy path without live credentials.
+ * Security: every incoming request is verified using the X-Twilio-Signature
+ * header and the TWILIO_AUTH_TOKEN env var via `twilio.validateRequest()`.
+ * Requests with invalid signatures are rejected with 403.
  */
 export async function POST(req: NextRequest) {
   try {
     // Twilio sends application/x-www-form-urlencoded
     const formData = await req.formData();
+
+    // Build a plain object from form data for signature verification.
+    const params: Record<string, string> = {};
+    formData.forEach((value, key) => {
+      params[key] = String(value);
+    });
+
+    // Verify the request was genuinely sent by Twilio.
+    const isValid = await validateTwilioWebhook(req, params);
+    if (!isValid) {
+      return new NextResponse(twilioXml("Forbidden"), {
+        status: 403,
+        headers: { "Content-Type": "text/xml" },
+      });
+    }
 
     const from = formData.get("From") as string | null;
     const body = formData.get("Body") as string | null;

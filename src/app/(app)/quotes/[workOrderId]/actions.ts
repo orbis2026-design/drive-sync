@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
+import { sendSMS } from "@/lib/twilio";
 import { TAX_RATE, DEFAULT_SHOP_RATE_CENTS } from "./constants";
 import { getDueServices, type DueService, formatMilesUntilDue } from "@/lib/predictive-service";
 import { MaintenanceScheduleSchema } from "@/lib/schemas/maintenance";
@@ -128,19 +129,6 @@ async function fetchShopRate(tenantId: string): Promise<number> {
     // Column not present yet, or DB unavailable — fall back to demo default.
   }
   return DEFAULT_SHOP_RATE_CENTS;
-}
-
-/**
- * Simulates a Twilio SMS API call.
- * In production replace this stub with a real Twilio client:
- *   const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
- *   await client.messages.create({ to, from: process.env.TWILIO_PHONE_NUMBER, body });
- */
-function simulateTwilioSMS(to: string, body: string): void {
-  console.log("[Twilio SMS] ──────────────────────────────────────────────");
-  console.log(`[Twilio SMS] To:   ${to}`);
-  console.log(`[Twilio SMS] Body: ${body}`);
-  console.log("[Twilio SMS] ──────────────────────────────────────────────");
 }
 
 // ---------------------------------------------------------------------------
@@ -452,7 +440,7 @@ export async function getSendPageData(
  *   2. Generates a cryptographically secure UUID approval token.
  *   3. Persists the token and transitions status to PENDING_APPROVAL via Prisma.
  *   4. Mirrors the update to the Supabase `work_orders` row (best-effort).
- *   5. Simulates a Twilio SMS to the client's phone number.
+ *   5. Sends a Twilio SMS to the client's phone number with the portal link.
  *
  * Prevents double-sends: once status is PENDING_APPROVAL the action is a no-op
  * for any subsequent calls on the same work order.
@@ -549,7 +537,7 @@ export async function sendQuote(
     // migrated yet in the current environment.
   }
 
-  // --- Simulate Twilio SMS ---------------------------------------------
+  // --- Send SMS via Twilio -------------------------------------------------
   const portalBaseUrl =
     process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? "https://app.domain.com";
   const portalUrl = `${portalBaseUrl}/portal/${token}`;
@@ -557,7 +545,10 @@ export async function sendQuote(
     `Your mechanic has finished diagnosing your vehicle. ` +
     `Tap here to review and approve the repair quote: ${portalUrl}`;
 
-  simulateTwilioSMS(workOrder.client.phone, smsBody);
+  const smsResult = await sendSMS(workOrder.client.phone, smsBody);
+  if (!smsResult.success) {
+    console.error("[sendQuote] SMS delivery failed:", smsResult.error);
+  }
 
   return { success: true, portalUrl, smsBody };
 }

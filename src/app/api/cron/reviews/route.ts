@@ -20,7 +20,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createAdminClient } from "@/lib/supabase/admin";
-import twilio from "twilio";
+import { sendSMS } from "@/lib/twilio";
 
 // ---------------------------------------------------------------------------
 // Security — Bearer token guard (same pattern as retention cron)
@@ -77,19 +77,6 @@ function hasDeclinedSafetyFail(inspectionJson: unknown): boolean {
 export async function GET(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const twilioClient = twilio(
-    process.env.TWILIO_ACCOUNT_SID,
-    process.env.TWILIO_AUTH_TOKEN,
-  );
-  const fromNumber = process.env.TWILIO_FROM_NUMBER;
-
-  if (!fromNumber) {
-    return NextResponse.json(
-      { error: "TWILIO_FROM_NUMBER not configured" },
-      { status: 500 },
-    );
   }
 
   const adminDb = createAdminClient();
@@ -170,16 +157,11 @@ export async function GET(req: NextRequest) {
       `Thanks for choosing ${shopName}! If your car is running great, ` +
       `it would mean the world if you left a quick review: ${reviewLink}`;
 
-    try {
-      await twilioClient.messages.create({
-        to: phone,
-        from: fromNumber,
-        body,
-      });
+    const smsResult = await sendSMS(phone, body);
+    if (smsResult.success) {
       smsSent++;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Twilio error";
-      errors.push(`[${order.id}] ${firstName}: ${message}`);
+    } else {
+      errors.push(`[${order.id}] ${firstName}: ${smsResult.error}`);
     }
   }
 
