@@ -13,6 +13,7 @@
  */
 
 import { useState } from "react";
+import { useToast } from "@/components/Toast";
 
 // ---------------------------------------------------------------------------
 // Feature definitions
@@ -125,17 +126,18 @@ export default function PreferencesPage() {
   const [features, setFeatures] = useState<FeaturesMap>(() =>
     typeof window !== "undefined" ? loadFeatures() : {}
   );
-  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const { showToast, toastElement } = useToast();
 
   function handleToggle(key: string, value: boolean) {
     const updated = { ...features, [key]: value };
     setFeatures(updated);
     saveFeatures(updated);
-    setSavedAt(new Date());
+    showToast(value ? "Feature enabled ✓" : "Feature disabled");
   }
 
   return (
     <div className="max-w-xl mx-auto px-4 pt-6 pb-20 space-y-6">
+      {toastElement}
       <div>
         <h1 className="text-2xl font-black text-white tracking-tight mb-1">
           Feature Preferences
@@ -183,12 +185,6 @@ export default function PreferencesPage() {
           );
         })}
       </div>
-
-      {savedAt && (
-        <p className="text-[10px] text-gray-600 text-center">
-          Saved at {savedAt.toLocaleTimeString()}
-        </p>
-      )}
 
       <div className="rounded-xl bg-gray-900 border border-gray-800 px-4 py-3">
         <p className="text-xs text-gray-500 leading-relaxed">

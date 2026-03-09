@@ -23,6 +23,7 @@ import {
   type TaxMatrix,
 } from "@/lib/math-engine";
 import { saveTaxMatrix, saveTaxSettings, lookupTaxByZipCode } from "./actions";
+import { useToast } from "@/components/Toast";
 
 // ---------------------------------------------------------------------------
 // US state tax presets — curated reference data
@@ -124,20 +125,20 @@ export default function TaxSettingsPage() {
   const [matrix, setMatrix] = useState<TaxMatrix>({ ...DEFAULT_TAX_MATRIX });
   const [selectedState, setSelectedState] = useState<string>("");
   const [shopZipCode, setShopZipCode] = useState<string>("");
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [taxLookupSource, setTaxLookupSource] = useState<"taxjar" | "avalara" | "state_preset" | null>(null);
   const [isPending, startTransition] = useTransition();
+  const { showToast, toastElement } = useToast();
 
   function handleLookupDistrictTax() {
     if (!shopZipCode) return;
-    setSaved(false);
     setError(null);
     setTaxLookupSource(null);
     startTransition(async () => {
       const result = await lookupTaxByZipCode(shopZipCode);
       if ("error" in result) {
         setError(result.error);
+        showToast(result.error, "error");
         return;
       }
       setMatrix((m) => ({
@@ -146,6 +147,7 @@ export default function TaxSettingsPage() {
         labor_tax_rate: result.labor_tax_rate,
       }));
       setTaxLookupSource(result.source);
+      showToast("Tax rates updated from district lookup ✓");
     });
   }
 
@@ -154,7 +156,6 @@ export default function TaxSettingsPage() {
     if (!abbr) return;
     const preset = STATE_PRESETS.find((s) => s.abbr === abbr);
     if (!preset) return;
-    setSaved(false);
     setError(null);
     setMatrix({
       labor_tax_rate: preset.labor_tax_rate,
@@ -165,7 +166,6 @@ export default function TaxSettingsPage() {
   }
 
   function handleChange(field: keyof TaxMatrix, raw: string) {
-    setSaved(false);
     setError(null);
     if (field === "environmental_fee_flat") {
       setMatrix((m) => ({ ...m, [field]: parseDollar(raw) }));
@@ -188,8 +188,9 @@ export default function TaxSettingsPage() {
       const err = matrixResult.error ?? settingsResult.error;
       if (err) {
         setError(err);
+        showToast(err, "error");
       } else {
-        setSaved(true);
+        showToast("Tax matrix saved ✓");
       }
     });
   }
@@ -207,6 +208,9 @@ export default function TaxSettingsPage() {
 
   return (
     <div className="max-w-xl mx-auto px-4 pt-6 pb-24">
+      {/* Toast */}
+      {toastElement}
+
       {/* Header */}
       <div className="mb-6">
         <a
@@ -246,7 +250,7 @@ export default function TaxSettingsPage() {
               maxLength={10}
               placeholder="e.g. 90210"
               value={shopZipCode}
-              onChange={(e) => { setSaved(false); setShopZipCode(e.target.value.replace(/[^0-9-]/g, "")); }}
+              onChange={(e) => { setShopZipCode(e.target.value.replace(/[^0-9-]/g, "")); }}
               className="w-40 rounded-lg bg-gray-800 border border-gray-700 text-white px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-400"
             />
             <button
@@ -465,11 +469,6 @@ export default function TaxSettingsPage() {
         {error && (
           <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
             {error}
-          </p>
-        )}
-        {saved && (
-          <p className="text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3">
-            ✓ Tax matrix saved successfully.
           </p>
         )}
 

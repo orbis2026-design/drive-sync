@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useOptimistic, useTransition, useState, useRef, useEffect } from "react";
 import type { ConsumableRow } from "./actions";
 import { restockConsumable, createConsumable } from "./actions";
+import { useToast } from "@/components/Toast";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,18 +26,19 @@ function ConsumableCard({
   onRestock,
 }: {
   item: ConsumableRow;
-  onRestock: (id: string, qty: number) => Promise<void>;
+  onRestock: (id: string, qty: number) => void;
 }) {
   const [qty, setQty] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function handleRestock(delta: number) {
+  function handleRestock(delta: number) {
     const amount = delta !== 0 ? delta : parseFloat(qty);
     if (isNaN(amount) || amount === 0) return;
     setBusy(true);
-    await onRestock(item.id, amount);
+    onRestock(item.id, amount);
     setQty("");
-    setBusy(false);
+    // Reset busy after a short delay since the parent handles the async work
+    setTimeout(() => setBusy(false), 500);
   }
 
   return (
@@ -145,6 +147,12 @@ function AddConsumableModal({
   const [threshold, setThreshold] = useState("5");
   const [cost, setCost] = useState("0.00");
   const [busy, setBusy] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  // Auto-focus the first field when the modal opens
+  useEffect(() => {
+    nameRef.current?.focus();
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -168,6 +176,7 @@ function AddConsumableModal({
           <div className="flex flex-col gap-1">
             <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Name</label>
             <input
+              ref={nameRef}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="5W-30 Synthetic"
@@ -249,31 +258,42 @@ function AddConsumableModal({
 export function InventoryClient({ initial }: { initial: ConsumableRow[] }) {
   const [items, setItems] = useState<ConsumableRow[]>(initial);
   const [showAdd, setShowAdd] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
+  const { showToast, toastElement } = useToast();
 
-  function showMsg(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2500);
-  }
-
-  async function handleRestock(id: string, qty: number) {
-    const result = await restockConsumable(id, qty);
-    if ("error" in result) {
-      showMsg(`Error: ${result.error}`);
-      return;
-    }
-    setItems((prev) =>
-      prev.map((item) => {
+  // Optimistic restock: immediately reflect the quantity change while the
+  // server request resolves in the background.
+  const [optimisticItems, applyOptimisticRestock] = useOptimistic(
+    items,
+    (
+      state,
+      { id, delta }: { id: string; delta: number },
+    ): ConsumableRow[] =>
+      state.map((item) => {
         if (item.id !== id) return item;
-        const newStock = Math.max(0, item.currentStock + qty);
-        return {
-          ...item,
-          currentStock: newStock,
-          isLow: newStock < item.lowStockThreshold,
-        };
+        const newStock = Math.max(0, item.currentStock + delta);
+        return { ...item, currentStock: newStock, isLow: newStock < item.lowStockThreshold };
       }),
-    );
-    showMsg("Stock updated ✓");
+  );
+
+  function handleRestock(id: string, qty: number) {
+    startTransition(async () => {
+      applyOptimisticRestock({ id, delta: qty });
+      const result = await restockConsumable(id, qty);
+      if ("error" in result) {
+        showToast(`Error: ${result.error}`, "error");
+        return;
+      }
+      // Commit the real state so the optimistic value sticks.
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.id !== id) return item;
+          const newStock = Math.max(0, item.currentStock + qty);
+          return { ...item, currentStock: newStock, isLow: newStock < item.lowStockThreshold };
+        }),
+      );
+      showToast("Stock updated ✓");
+    });
   }
 
   async function handleAdd(data: {
@@ -285,7 +305,7 @@ export function InventoryClient({ initial }: { initial: ConsumableRow[] }) {
   }) {
     const result = await createConsumable(data);
     if ("error" in result) {
-      showMsg(`Error: ${result.error}`);
+      showToast(`Error: ${result.error}`, "error");
       return;
     }
     const newItem: ConsumableRow = {
@@ -294,22 +314,15 @@ export function InventoryClient({ initial }: { initial: ConsumableRow[] }) {
       isLow: data.currentStock < data.lowStockThreshold,
     };
     setItems((prev) => [...prev, newItem].sort((a, b) => a.name.localeCompare(b.name)));
-    showMsg("Consumable added ✓");
+    showToast("Consumable added ✓");
   }
 
-  const lowCount = items.filter((i) => i.isLow).length;
+  const lowCount = optimisticItems.filter((i) => i.isLow).length;
 
   return (
     <>
       {/* Toast */}
-      {toast && (
-        <div
-          role="status"
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-sm font-bold shadow-xl bg-gray-700 text-white"
-        >
-          {toast}
-        </div>
-      )}
+      {toastElement}
 
       {/* Low-stock summary banner */}
       {lowCount > 0 && (
@@ -342,7 +355,7 @@ export function InventoryClient({ initial }: { initial: ConsumableRow[] }) {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 px-4 pb-[calc(env(safe-area-inset-bottom)+80px)] sm:pb-6">
-          {items.map((item) => (
+          {optimisticItems.map((item) => (
             <ConsumableCard key={item.id} item={item} onRestock={handleRestock} />
           ))}
         </div>
