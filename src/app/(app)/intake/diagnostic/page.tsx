@@ -19,9 +19,13 @@
  *      diagnostic fee into the final repair cost.
  */
 
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition } from "react";
 import Link from "next/link";
-import { createDiagnosticWorkOrder } from "./actions";
+import {
+  createDiagnosticWorkOrder,
+  sendDiagnosticApprovalSms,
+  checkApprovalStatus,
+} from "./actions";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -81,8 +85,27 @@ export default function DiagnosticIntakePage() {
   });
   const [rollFee, setRollFee] = useState(false);
   const [convertedWorkOrderId, setConvertedWorkOrderId] = useState<string | null>(null);
+  const [pendingApprovalToken, setPendingApprovalToken] = useState<string | null>(null);
+  const [pendingWorkOrderId, setPendingWorkOrderId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  // Polling interval: check approval status every 5 seconds after SMS sent.
+  useEffect(() => {
+    if (!pendingApprovalToken || step !== "contract") return;
+
+    const intervalId = setInterval(() => {
+      checkApprovalStatus(pendingApprovalToken).then((result) => {
+        if ("error" in result) return;
+        if (result.approved) {
+          setStep("signed");
+          clearInterval(intervalId);
+        }
+      });
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [pendingApprovalToken, step]);
 
   const diagnosticFeeCents = Math.round(
     parseFloat(form.diagnosticFeeOverride || "150") * 100,
@@ -108,14 +131,36 @@ export default function DiagnosticIntakePage() {
   }
 
   // -------------------------------------------------------------------------
-  // Step 2 → Step 3: simulate client signature (SMS link in production)
+  // Step 2 → Step 3: send SMS to client for digital signature
   // -------------------------------------------------------------------------
 
-  function handleSimulateSign() {
+  function handleSendApproval() {
     startTransition(async () => {
-      // In production: generate approval token → send SMS → wait for portal response.
-      await new Promise((r) => setTimeout(r, 800));
-      setStep("signed");
+      setError(null);
+      const result = await sendDiagnosticApprovalSms({
+        clientFirstName: form.clientFirstName,
+        clientLastName: form.clientLastName,
+        clientPhone: form.clientPhone,
+        vehicleYear: parseInt(form.vehicleYear, 10) || 0,
+        vehicleMake: form.vehicleMake,
+        vehicleModel: form.vehicleModel,
+        vin: form.vin || undefined,
+        mileage: form.mileage
+          ? Math.max(0, Math.floor(parseFloat(form.mileage)))
+          : undefined,
+        symptom: form.complainedSymptom,
+        diagnosticFeeCents,
+        rollDiagnosticFee: rollFee,
+      });
+
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+
+      setPendingApprovalToken(result.approvalToken);
+      setPendingWorkOrderId(result.workOrderId);
+      setStep("contract");
     });
   }
 
@@ -126,6 +171,13 @@ export default function DiagnosticIntakePage() {
   function handleConvert() {
     startTransition(async () => {
       try {
+        // If a work order was pre-created during the SMS approval step, reuse it.
+        if (pendingWorkOrderId) {
+          setConvertedWorkOrderId(pendingWorkOrderId);
+          setStep("converted");
+          return;
+        }
+
         const result = await createDiagnosticWorkOrder({
           clientFirstName: form.clientFirstName,
           clientLastName: form.clientLastName,
@@ -387,18 +439,33 @@ export default function DiagnosticIntakePage() {
               </div>
             ) : (
               <div className="mt-5 border-t border-gray-100 pt-4 text-center">
-                <p className="text-xs text-gray-500 mb-3">
-                  An SMS has been sent to{" "}
-                  <strong>{form.clientPhone}</strong> with a secure link to
-                  review and sign this authorization.
-                </p>
-                <button
-                  onClick={handleSimulateSign}
-                  disabled={isPending}
-                  className="rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold px-6 py-2.5 text-sm transition-all"
-                >
-                  {isPending ? "Waiting…" : "Simulate Client Signature ✓"}
-                </button>
+                {pendingApprovalToken ? (
+                  <>
+                    <p className="text-xs text-blue-600 font-medium mb-2">
+                      ⏳ Waiting for client signature…
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      An SMS has been sent to{" "}
+                      <strong>{form.clientPhone}</strong>. This page will
+                      update automatically once the client signs.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Tap below to send a secure SMS to{" "}
+                      <strong>{form.clientPhone}</strong> with a link to
+                      review and sign this authorization.
+                    </p>
+                    <button
+                      onClick={handleSendApproval}
+                      disabled={isPending}
+                      className="rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold px-6 py-2.5 text-sm transition-all"
+                    >
+                      {isPending ? "Sending…" : "Send Authorization SMS"}
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

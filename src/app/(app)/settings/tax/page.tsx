@@ -22,7 +22,7 @@ import {
   formatCentsAsDollars,
   type TaxMatrix,
 } from "@/lib/math-engine";
-import { saveTaxMatrix, saveTaxSettings } from "./actions";
+import { saveTaxMatrix, saveTaxSettings, lookupTaxByZipCode } from "./actions";
 
 // ---------------------------------------------------------------------------
 // US state tax presets — curated reference data
@@ -126,36 +126,27 @@ export default function TaxSettingsPage() {
   const [shopZipCode, setShopZipCode] = useState<string>("");
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [taxLookupSource, setTaxLookupSource] = useState<"taxjar" | "avalara" | "state_preset" | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  function lookupDistrictTax() {
+  function handleLookupDistrictTax() {
     if (!shopZipCode) return;
-    const prefix = shopZipCode[0];
     setSaved(false);
     setError(null);
-    // Deterministic mock based on zip code prefix per issue spec
-    if (prefix === "9") {
-      // California district rates
-      setMatrix((m) => ({ ...m, parts_tax_rate: 0.0725, labor_tax_rate: 0.0 }));
-    } else if (prefix === "1") {
-      // New York district rates
-      setMatrix((m) => ({ ...m, parts_tax_rate: 0.08, labor_tax_rate: 0.0 }));
-    } else if (prefix === "3" || prefix === "4") {
-      // FL/GA/OH area rates
-      setMatrix((m) => ({ ...m, parts_tax_rate: 0.06, labor_tax_rate: 0.0 }));
-    } else if (prefix === "7") {
-      // TX/LA area rates
-      setMatrix((m) => ({ ...m, parts_tax_rate: 0.0625, labor_tax_rate: 0.0625 }));
-    } else if (prefix === "6") {
-      // IL/WI/MN area rates
-      setMatrix((m) => ({ ...m, parts_tax_rate: 0.0625, labor_tax_rate: 0.0 }));
-    } else if (prefix === "2") {
-      // VA/MD/NC area rates
-      setMatrix((m) => ({ ...m, parts_tax_rate: 0.06, labor_tax_rate: 0.0 }));
-    } else {
-      // Default fallback
-      setMatrix((m) => ({ ...m, parts_tax_rate: 0.055, labor_tax_rate: 0.0 }));
-    }
+    setTaxLookupSource(null);
+    startTransition(async () => {
+      const result = await lookupTaxByZipCode(shopZipCode);
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+      setMatrix((m) => ({
+        ...m,
+        parts_tax_rate: result.parts_tax_rate,
+        labor_tax_rate: result.labor_tax_rate,
+      }));
+      setTaxLookupSource(result.source);
+    });
   }
 
   function handleStatePreset(abbr: string) {
@@ -260,16 +251,27 @@ export default function TaxSettingsPage() {
             />
             <button
               type="button"
-              onClick={lookupDistrictTax}
-              disabled={shopZipCode.length < 3}
+              onClick={handleLookupDistrictTax}
+              disabled={shopZipCode.length < 3 || isPending}
               className="rounded-lg bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 transition-colors"
             >
-              Lookup District Tax
+              {isPending ? "Looking up…" : "Lookup District Tax"}
             </button>
           </div>
           <p className="text-xs text-gray-500 mt-2">
             Auto-fills Parts Tax and Labor Tax based on your district. You can still override manually below.
           </p>
+          {taxLookupSource && (
+            <p className="text-xs text-emerald-400 mt-1">
+              ✓ Rates loaded via{" "}
+              {taxLookupSource === "taxjar"
+                ? "TaxJar API"
+                : taxLookupSource === "avalara"
+                  ? "Avalara API"
+                  : "state preset (no API key configured)"}
+              . Review and save below.
+            </p>
+          )}
         </div>
 
         {/* State auto-detect preset */}
