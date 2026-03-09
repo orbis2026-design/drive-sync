@@ -6,7 +6,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 import { sendSMS } from "@/lib/twilio";
 
 export interface CreateDiagnosticWorkOrderParams {
@@ -26,10 +26,7 @@ export interface CreateDiagnosticWorkOrderParams {
 export async function createDiagnosticWorkOrder(
   params: CreateDiagnosticWorkOrderParams,
 ): Promise<{ workOrderId: string } | { error: string }> {
-  const tenantId = await getTenantId();
-  if (!tenantId) {
-    return { error: "Authentication required." };
-  }
+  const { tenantId } = await verifySession();
 
   try {
     // --- Upsert client --------------------------------------------------
@@ -156,10 +153,7 @@ export async function sendDiagnosticApprovalSms(
 ): Promise<
   { ok: true; approvalToken: string; workOrderId: string } | { error: string }
 > {
-  const tenantId = await getTenantId();
-  if (!tenantId) {
-    return { error: "Authentication required." };
-  }
+  const { tenantId } = await verifySession();
 
   try {
     // --- Upsert client ------------------------------------------------------

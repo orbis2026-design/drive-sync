@@ -18,7 +18,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,8 +59,7 @@ export async function convertDiagnosticToRepairQuote(
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   // --- Fetch current state ---------------------------------------------------
   let workOrder: {
@@ -170,8 +169,7 @@ export async function getDiagnosticTicketData(workOrderId: string): Promise<
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     const workOrder = await prisma.workOrder.findFirst({

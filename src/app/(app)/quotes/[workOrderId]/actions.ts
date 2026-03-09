@@ -3,7 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
 import { sendSMS } from "@/lib/twilio";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 import { TAX_RATE, DEFAULT_SHOP_RATE_CENTS } from "./constants";
 import { getDueServices, type DueService, formatMilesUntilDue } from "@/lib/predictive-service";
 import { MaintenanceScheduleSchema } from "@/lib/schemas/maintenance";
@@ -158,8 +158,7 @@ export async function getQuoteData(
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   let workOrder: {
     id: string;
@@ -283,8 +282,7 @@ export async function lockQuote(
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   const { laborHours, customerSuppliedParts } = params;
 
@@ -380,8 +378,7 @@ export async function getSendPageData(
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   let workOrder: {
     id: string;
@@ -468,8 +465,7 @@ export async function sendQuote(
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   // --- Fetch WorkOrder + client data -----------------------------------
   let workOrder: {
@@ -607,8 +603,7 @@ export async function submitChangeOrder(
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   // --- Validate input with Zod -------------------------------------------
   const parseResult = DeltaPartsArraySchema.safeParse(rawDeltaParts);
@@ -724,8 +719,7 @@ export async function submitSupplementalChangeOrder(
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   // --- Validate parts -------------------------------------------------
   const partsResult = z.array(DeltaPartSchema).safeParse(rawDeltaParts);

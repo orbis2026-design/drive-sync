@@ -2,7 +2,7 @@
 
 import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Stripe client (lazy-initialised, server-only)
@@ -41,16 +41,7 @@ export interface SubscriptionDetails {
 // ---------------------------------------------------------------------------
 
 export async function getSubscriptionDetails(): Promise<SubscriptionDetails> {
-  const tenantId = await getTenantId();
-  if (!tenantId) {
-    return {
-      subscriptionStatus: "NONE",
-      stripeCustomerId: null,
-      currentPeriodEnd: null,
-      paymentMethodLast4: null,
-      invoices: [],
-    };
-  }
+  const { tenantId } = await verifySession();
 
   const admin = createAdminClient();
 
@@ -154,8 +145,7 @@ export async function createBillingPortalSession(
   returnUrl: string,
 ): Promise<{ url: string } | { error: string }> {
   const admin = createAdminClient();
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   const { data: tenant } = await admin
     .from("tenants")

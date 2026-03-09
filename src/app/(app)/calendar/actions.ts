@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,8 +48,7 @@ export type CalendarData = {
 export async function fetchCalendarData(
   centerDate?: string,
 ): Promise<{ data: CalendarData } | { error: string }> {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     const center = centerDate ? new Date(centerDate) : new Date();
@@ -219,10 +218,7 @@ export async function cancelWorkOrder(
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) {
-    return { error: "Authentication required." };
-  }
+  const { tenantId } = await verifySession();
 
   try {
     // 1. Cancel the target work order and clear its slot

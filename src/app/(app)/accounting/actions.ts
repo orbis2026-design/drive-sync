@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -44,8 +44,7 @@ export async function fetchMonthlyReport(
     return { error: "Invalid year or month." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     const start = new Date(year, month - 1, 1);

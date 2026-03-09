@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -293,8 +293,7 @@ export async function lookupTSBs(
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   const code = obdCode.trim().toUpperCase();
   if (!/^[PBCU][0-3][0-9]{3}$/.test(code)) {
@@ -344,8 +343,7 @@ export async function addToQuote(
     return { error: "Missing work order ID." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   try {
     const existing = await prisma.workOrder.findFirst({

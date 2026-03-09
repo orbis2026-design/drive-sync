@@ -2,7 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 export interface IntegrationSettings {
   googlePlaceId: string | null;
@@ -11,10 +11,7 @@ export interface IntegrationSettings {
 }
 
 export async function getIntegrationSettings(): Promise<IntegrationSettings> {
-  const tenantId = await getTenantId();
-  if (!tenantId) {
-    return { googlePlaceId: null, reviewLink: null, ownerPhone: null };
-  }
+  const { tenantId } = await verifySession();
   try {
     const admin = createAdminClient();
     const { data } = await admin
@@ -35,8 +32,7 @@ export async function getIntegrationSettings(): Promise<IntegrationSettings> {
 export async function saveIntegrationSettings(
   settings: IntegrationSettings,
 ): Promise<{ success: true } | { error: string }> {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
   try {
     const admin = createAdminClient();
     const { error } = await admin

@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
-import { getTenantId } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -56,8 +56,7 @@ export interface SyncResult {
 // ---------------------------------------------------------------------------
 
 export async function getQboStatus(): Promise<QboStatus> {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { connected: false, realmId: null, companyName: null };
+  const { tenantId } = await verifySession();
 
   const admin = createAdminClient();
 
@@ -118,8 +117,7 @@ export async function getQboOAuthUrl(): Promise<{ url: string }> {
 // ---------------------------------------------------------------------------
 
 export async function disconnectQbo(): Promise<{ ok: boolean }> {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { ok: false };
+  const { tenantId } = await verifySession();
 
   const admin = createAdminClient();
   await admin
@@ -149,8 +147,7 @@ const QboResponseSchema = z.object({
 export async function getQboChartOfAccounts(): Promise<
   ChartOfAccountsEntry[] | { error: string }
 > {
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   const admin = createAdminClient();
   const { data: tenant } = await admin
@@ -210,8 +207,7 @@ export async function syncPaidWorkOrders(
     return { error: "Please map at least Labor and Parts accounts before syncing." };
   }
 
-  const tenantId = await getTenantId();
-  if (!tenantId) return { error: "Authentication required." };
+  const { tenantId } = await verifySession();
 
   const admin = createAdminClient();
   const { data: tenant } = await admin

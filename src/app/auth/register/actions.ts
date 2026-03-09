@@ -1,19 +1,36 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getSessionUserId } from "@/lib/auth";
 
 function generateSlug(email: string): string {
   const prefix = email.split("@")[0].toLowerCase().replace(/[^a-z0-9]/g, "-");
   return `${prefix}-${Date.now().toString(36)}`;
 }
 
-export async function provisionTenant(
-  userId: string,
-  email: string,
-): Promise<{ success: true } | { error: string }> {
+export async function provisionTenant(): Promise<
+  { success: true } | { error: string }
+> {
   try {
+    // Derive userId from the active session — never trust client-supplied IDs.
+    const userId = await getSessionUserId();
+    if (!userId) {
+      return { error: "Authentication required." };
+    }
+
     const admin = createAdminClient();
 
+    // Fetch the user's email from Supabase auth (server-side only).
+    const {
+      data: { user },
+      error: userError,
+    } = await admin.auth.admin.getUserById(userId);
+
+    if (userError || !user?.email) {
+      return { error: "Unable to retrieve account information." };
+    }
+
+    const email = user.email;
     const slug = generateSlug(email);
     const name = email.split("@")[0];
 
