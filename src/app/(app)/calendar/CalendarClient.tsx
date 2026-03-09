@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useOptimistic, useTransition } from "react";
 import type { CalendarData, ScheduledJob, BacklogJob } from "./actions";
 import { scheduleWorkOrder, unscheduleWorkOrder, cancelWorkOrder } from "./actions";
 import { ElasticDispatchPrompt } from "./live-dispatch";
+import { useToast } from "@/components/Toast";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -350,8 +351,9 @@ export function CalendarClient({ initial }: { initial: CalendarData }) {
   const [data, setData] = useState<CalendarData>(initial);
   const [selectedBacklogId, setSelectedBacklogId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(null);
   const [detailJob, setDetailJob] = useState<ScheduledJob | null>(null);
+  const [, startTransition] = useTransition();
+  const { showToast, toastElement } = useToast();
 
   // Elastic dispatch state (Issue #87)
   const [dispatchPrompt, setDispatchPrompt] = useState<{
@@ -359,97 +361,127 @@ export function CalendarClient({ initial }: { initial: CalendarData }) {
     nextJob: ScheduledJob | null;
   } | null>(null);
 
+  // Optimistic calendar data: immediately reflect scheduling changes while
+  // the server request resolves in the background.
+  const [optimisticData, applyOptimistic] = useOptimistic(
+    data,
+    (state, patch: Partial<CalendarData>) => ({ ...state, ...patch }),
+  );
+
   const weekDays = getWeekDays(currentDate);
 
-  function showToast(msg: string, error = false) {
-    setToast({ msg, error });
-    setTimeout(() => setToast(null), 3000);
-  }
-
   const handleSlotTap = useCallback(
-    async (isoDateTime: string) => {
+    (isoDateTime: string) => {
       if (!selectedBacklogId || busy) return;
+      const job = data.backlog.find((j) => j.id === selectedBacklogId);
+      if (!job) return;
+
       setBusy(true);
-      const result = await scheduleWorkOrder(selectedBacklogId, isoDateTime);
-      if ("error" in result) {
-        showToast(result.error, true);
-      } else {
-        const job = data.backlog.find((j) => j.id === selectedBacklogId);
-        if (job) {
-          const newScheduled: ScheduledJob = {
-            id: job.id,
-            title: job.title,
-            scheduledAt: isoDateTime,
-            durationMinutes: 60,
-            status: job.status,
-            client: { ...job.client, zipCode: null },
-            vehicle: job.vehicle,
-          };
+      const newScheduled: ScheduledJob = {
+        id: job.id,
+        title: job.title,
+        scheduledAt: isoDateTime,
+        durationMinutes: 60,
+        status: job.status,
+        client: { ...job.client, zipCode: null },
+        vehicle: job.vehicle,
+      };
+
+      startTransition(async () => {
+        // Optimistic: move job from backlog to scheduled immediately
+        applyOptimistic({
+          scheduled: [...data.scheduled, newScheduled],
+          backlog: data.backlog.filter((j) => j.id !== selectedBacklogId),
+        });
+
+        const result = await scheduleWorkOrder(selectedBacklogId, isoDateTime);
+        if ("error" in result) {
+          showToast(result.error, "error");
+        } else {
+          // Commit real state
           setData((prev) => ({
             scheduled: [...prev.scheduled, newScheduled],
             backlog: prev.backlog.filter((j) => j.id !== selectedBacklogId),
           }));
+          setSelectedBacklogId(null);
+          showToast("Job scheduled ✓");
         }
-        setSelectedBacklogId(null);
-        showToast("Job scheduled ✓");
-      }
-      setBusy(false);
+        setBusy(false);
+      });
     },
-    [selectedBacklogId, busy, data.backlog],
+    [selectedBacklogId, busy, data, applyOptimistic, showToast, startTransition],
   );
 
   const handleUnschedule = useCallback(
-    async (job: ScheduledJob) => {
+    (job: ScheduledJob) => {
       if (busy) return;
       setBusy(true);
-      const result = await unscheduleWorkOrder(job.id);
-      if ("error" in result) {
-        showToast(result.error, true);
-      } else {
-        const backlogJob: BacklogJob = {
-          id: job.id,
-          title: job.title,
-          status: job.status,
-          client: { firstName: job.client.firstName, lastName: job.client.lastName },
-          vehicle: job.vehicle,
-          createdAt: new Date().toISOString(),
-        };
-        setData((prev) => ({
-          scheduled: prev.scheduled.filter((j) => j.id !== job.id),
-          backlog: [...prev.backlog, backlogJob],
-        }));
-        setDetailJob(null);
-        showToast("Job returned to backlog");
-      }
-      setBusy(false);
+
+      const backlogJob: BacklogJob = {
+        id: job.id,
+        title: job.title,
+        status: job.status,
+        client: { firstName: job.client.firstName, lastName: job.client.lastName },
+        vehicle: job.vehicle,
+        createdAt: new Date().toISOString(),
+      };
+
+      startTransition(async () => {
+        // Optimistic: move job from scheduled back to backlog immediately
+        applyOptimistic({
+          scheduled: data.scheduled.filter((j) => j.id !== job.id),
+          backlog: [...data.backlog, backlogJob],
+        });
+
+        const result = await unscheduleWorkOrder(job.id);
+        if ("error" in result) {
+          showToast(result.error, "error");
+        } else {
+          setData((prev) => ({
+            scheduled: prev.scheduled.filter((j) => j.id !== job.id),
+            backlog: [...prev.backlog, backlogJob],
+          }));
+          setDetailJob(null);
+          showToast("Job returned to backlog");
+        }
+        setBusy(false);
+      });
     },
-    [busy],
+    [busy, data, applyOptimistic, showToast, startTransition],
   );
 
   // Issue #87 — Elastic Dispatch: cancel a job and check for schedule gap
   const handleCancel = useCallback(
-    async (job: ScheduledJob) => {
+    (job: ScheduledJob) => {
       if (busy) return;
       setBusy(true);
-      const result = await cancelWorkOrder(job.id);
-      if ("error" in result) {
-        showToast(result.error, true);
-      } else {
-        // Remove the cancelled job from the scheduled list
-        setData((prev) => ({
-          scheduled: prev.scheduled.filter((j) => j.id !== job.id),
-          backlog: prev.backlog,
-        }));
-        setDetailJob(null);
-        showToast("Job cancelled");
-        // If there is a next job, surface the ElasticDispatchPrompt
-        if (result.nextJob) {
-          setDispatchPrompt({ cancelledJobId: job.id, nextJob: result.nextJob });
+
+      startTransition(async () => {
+        // Optimistic: remove job from scheduled immediately
+        applyOptimistic({
+          scheduled: data.scheduled.filter((j) => j.id !== job.id),
+          backlog: data.backlog,
+        });
+
+        const result = await cancelWorkOrder(job.id);
+        if ("error" in result) {
+          showToast(result.error, "error");
+        } else {
+          setData((prev) => ({
+            scheduled: prev.scheduled.filter((j) => j.id !== job.id),
+            backlog: prev.backlog,
+          }));
+          setDetailJob(null);
+          showToast("Job cancelled");
+          // If there is a next job, surface the ElasticDispatchPrompt
+          if (result.nextJob) {
+            setDispatchPrompt({ cancelledJobId: job.id, nextJob: result.nextJob });
+          }
         }
-      }
-      setBusy(false);
+        setBusy(false);
+      });
     },
-    [busy],
+    [busy, data, applyOptimistic, showToast, startTransition],
   );
 
   function navigate(dir: -1 | 1) {
@@ -473,17 +505,7 @@ export function CalendarClient({ initial }: { initial: CalendarData }) {
   return (
     <div className="flex flex-col h-full bg-gray-950 relative">
       {/* Toast */}
-      {toast && (
-        <div
-          role="status"
-          className={[
-            "fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-sm font-bold shadow-xl",
-            toast.error ? "bg-red-600 text-white" : "bg-green-600 text-white",
-          ].join(" ")}
-        >
-          {toast.msg}
-        </div>
-      )}
+      {toastElement}
 
       {/* Header */}
       <header className="px-4 pt-6 pb-3 flex flex-col gap-3">
@@ -545,13 +567,13 @@ export function CalendarClient({ initial }: { initial: CalendarData }) {
         {view === "day" ? (
           <DayView
             date={currentDate}
-            scheduled={data.scheduled}
+            scheduled={optimisticData.scheduled}
             pendingId={selectedBacklogId}
             onSlotTap={handleSlotTap}
             onJobTap={setDetailJob}
           />
         ) : (
-          <WeekView weekDays={weekDays} scheduled={data.scheduled} />
+          <WeekView weekDays={weekDays} scheduled={optimisticData.scheduled} />
         )}
       </div>
 
@@ -617,7 +639,7 @@ export function CalendarClient({ initial }: { initial: CalendarData }) {
 
       {/* Backlog drawer */}
       <BacklogDrawer
-        jobs={data.backlog}
+        jobs={optimisticData.backlog}
         selectedId={selectedBacklogId}
         onSelect={setSelectedBacklogId}
       />

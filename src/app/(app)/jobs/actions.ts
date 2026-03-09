@@ -113,3 +113,52 @@ export async function fetchActiveJobs(): Promise<
     return { data: null, error: message };
   }
 }
+
+// ---------------------------------------------------------------------------
+// advanceWorkOrderStatus — inline Kanban status advancement
+// ---------------------------------------------------------------------------
+
+/**
+ * The subset of status transitions that can be triggered directly from the
+ * Kanban board without navigating to a detail page.
+ *
+ * Allowed moves:
+ *   INTAKE       → ACTIVE    (start ordering parts / begin diagnosis)
+ *   COMPLETE     → INVOICED  (mark ready for payment)
+ */
+const ADVANCE_MAP: Partial<Record<ActiveStatus, ActiveStatus>> = {
+  INTAKE: "ACTIVE",
+  COMPLETE: "INVOICED",
+};
+
+export async function advanceWorkOrderStatus(
+  workOrderId: string,
+): Promise<{ nextStatus: ActiveStatus } | { error: string }> {
+  const { tenantId } = await verifySession();
+
+  try {
+    const workOrder = await prisma.workOrder.findUnique({
+      where: { id: workOrderId, tenantId },
+      select: { status: true },
+    });
+
+    if (!workOrder) {
+      return { error: "Work order not found." };
+    }
+
+    const nextStatus = ADVANCE_MAP[workOrder.status as ActiveStatus];
+    if (!nextStatus) {
+      return { error: "No automatic advance available for this status." };
+    }
+
+    await prisma.workOrder.update({
+      where: { id: workOrderId },
+      data: { status: nextStatus },
+    });
+
+    return { nextStatus };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to update status.";
+    return { error: message };
+  }
+}

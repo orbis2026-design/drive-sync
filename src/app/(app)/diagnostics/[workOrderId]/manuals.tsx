@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useToast } from "@/components/Toast";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -37,6 +38,12 @@ function SettingsModal({
 }) {
   const [alldata, setAlldata] = useState(alldataUrl);
   const [mitchell, setMitchell] = useState(mitchellUrl);
+  const firstInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-focus the first field when the modal opens
+  useEffect(() => {
+    firstInputRef.current?.focus();
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
@@ -49,6 +56,7 @@ function SettingsModal({
               ALLDATA SSO URL
             </label>
             <input
+              ref={firstInputRef}
               type="url"
               placeholder="https://my.alldata.com/sso?token=..."
               value={alldata}
@@ -105,6 +113,7 @@ export function RepairManualHub({
   const [alldataUrl, setAlldataUrl] = useState("");
   const [mitchellUrl, setMitchellUrl] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const { showToast, toastElement } = useToast();
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -118,6 +127,7 @@ export function RepairManualHub({
     setAlldataUrl(alldata);
     setMitchellUrl(mitchell);
     setSettingsOpen(false);
+    showToast("Settings saved ✓");
   };
 
   const vehicleLabel =
@@ -131,6 +141,9 @@ export function RepairManualHub({
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Toast */}
+      {toastElement}
+
       {/* Settings modal */}
       {settingsOpen && (
         <SettingsModal

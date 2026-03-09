@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useOptimistic, useTransition, useState } from "react";
 import Link from "next/link";
-import { type JobCard, type ActiveStatus } from "./actions";
+import { type JobCard, type ActiveStatus, advanceWorkOrderStatus } from "./actions";
+import { useToast } from "@/components/Toast";
 
 // ---------------------------------------------------------------------------
 // Status configuration
@@ -102,10 +103,23 @@ function relativeAge(isoString: string): string {
 // JobCard component
 // ---------------------------------------------------------------------------
 
-function JobCardRow({ job }: { job: JobCard }) {
+/** Label for the "advance to next status" button, keyed by current status. */
+const ADVANCE_LABEL: Partial<Record<ActiveStatus, string>> = {
+  INTAKE: "→ Active",
+  COMPLETE: "→ Invoice",
+};
+
+function JobCardRow({
+  job,
+  onAdvance,
+}: {
+  job: JobCard;
+  onAdvance: (id: string) => void;
+}) {
   const cfg = STATUS_CONFIG[job.status];
   const fullName = `${job.client.firstName} ${job.client.lastName}`;
   const vehicle = `${job.vehicle.year} ${job.vehicle.make} ${job.vehicle.model}`;
+  const advanceLabel = ADVANCE_LABEL[job.status];
 
   return (
     <article className="flex items-stretch gap-3 rounded-2xl bg-gray-900 border border-gray-700 overflow-hidden hover:border-gray-500 transition-colors">
@@ -138,19 +152,38 @@ function JobCardRow({ job }: { job: JobCard }) {
         {/* Age chip */}
         <span className="text-xs text-gray-500">{relativeAge(job.createdAt)}</span>
         {/* Action link */}
-        <Link
-          href={cfg.actionHref(job.id)}
-          className={[
-            "inline-flex items-center justify-center",
-            "px-3 py-1 rounded-lg",
-            "bg-gray-800 hover:bg-gray-700 active:bg-gray-600 border border-gray-600",
-            "text-xs font-bold text-white",
-            "transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400",
-          ].join(" ")}
-        >
-          {cfg.actionLabel}
-        </Link>
+        <div className="flex items-center gap-1.5">
+          {advanceLabel && (
+            <button
+              type="button"
+              onClick={() => onAdvance(job.id)}
+              aria-label={`Advance ${fullName}'s job to ${advanceLabel}`}
+              className={[
+                "inline-flex items-center justify-center",
+                "px-2 py-1 rounded-lg",
+                "bg-brand-400/10 hover:bg-brand-400/20 active:bg-brand-400/30 border border-brand-400/40",
+                "text-[11px] font-bold text-brand-400",
+                "transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400",
+              ].join(" ")}
+            >
+              {advanceLabel}
+            </button>
+          )}
+          <Link
+            href={cfg.actionHref(job.id)}
+            className={[
+              "inline-flex items-center justify-center",
+              "px-3 py-1 rounded-lg",
+              "bg-gray-800 hover:bg-gray-700 active:bg-gray-600 border border-gray-600",
+              "text-xs font-bold text-white",
+              "transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400",
+            ].join(" ")}
+          >
+            {cfg.actionLabel}
+          </Link>
+        </div>
       </div>
     </article>
   );
@@ -164,10 +197,12 @@ function LaneAccordion({
   status,
   jobs,
   defaultOpen,
+  onAdvance,
 }: {
   status: ActiveStatus;
   jobs: JobCard[];
   defaultOpen: boolean;
+  onAdvance: (id: string) => void;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const cfg = STATUS_CONFIG[status];
@@ -240,7 +275,7 @@ function LaneAccordion({
               No jobs in this stage.
             </p>
           ) : (
-            jobs.map((job) => <JobCardRow key={job.id} job={job} />)
+            jobs.map((job) => <JobCardRow key={job.id} job={job} onAdvance={onAdvance} />)
           )}
         </div>
       )}
@@ -270,20 +305,57 @@ function EmptyState() {
 // JobsBoard — main export consumed by page.tsx
 // ---------------------------------------------------------------------------
 
-export function JobsBoard({ jobs }: { jobs: JobCard[] }) {
+export function JobsBoard({ jobs: initialJobs }: { jobs: JobCard[] }) {
+  const [, startTransition] = useTransition();
+  const { showToast, toastElement } = useToast();
+
+  // Optimistic state: immediately re-bucket a job into its new status lane
+  // when the user clicks the advance button, before the server responds.
+  const [optimisticJobs, advanceOptimistic] = useOptimistic(
+    initialJobs,
+    (state, { id, nextStatus }: { id: string; nextStatus: ActiveStatus }) =>
+      state.map((job) =>
+        job.id === id ? { ...job, status: nextStatus } : job,
+      ),
+  );
+
+  function handleAdvance(id: string) {
+    // Determine next status from ADVANCE_MAP
+    const job = optimisticJobs.find((j) => j.id === id);
+    if (!job) return;
+    const ADVANCE_MAP: Partial<Record<ActiveStatus, ActiveStatus>> = {
+      INTAKE: "ACTIVE",
+      COMPLETE: "INVOICED",
+    };
+    const nextStatus = ADVANCE_MAP[job.status];
+    if (!nextStatus) return;
+
+    startTransition(async () => {
+      advanceOptimistic({ id, nextStatus });
+      const result = await advanceWorkOrderStatus(id);
+      if ("error" in result) {
+        showToast(result.error, "error");
+      } else {
+        showToast(`Moved to ${STATUS_CONFIG[result.nextStatus].label} ✓`);
+      }
+    });
+  }
+
   // Group jobs by status (client-side — data is already sorted by age).
   const grouped = PIPELINE_ORDER.reduce<Record<ActiveStatus, JobCard[]>>(
     (acc, status) => {
-      acc[status] = jobs.filter((j) => j.status === status);
+      acc[status] = optimisticJobs.filter((j) => j.status === status);
       return acc;
     },
     {} as Record<ActiveStatus, JobCard[]>,
   );
 
-  const totalJobs = jobs.length;
+  const totalJobs = optimisticJobs.length;
 
   return (
     <div className="flex flex-col min-h-full">
+      {toastElement}
+
       {/* Sticky summary bar */}
       <div className="sticky top-0 z-10 bg-gray-950 border-b border-gray-800 px-4 py-3 flex items-center gap-2">
         <span className="flex-1 text-sm text-gray-400">
@@ -327,6 +399,7 @@ export function JobsBoard({ jobs }: { jobs: JobCard[] }) {
                 jobs={grouped[status]}
                 // Open lanes that have jobs; collapse empty ones by default.
                 defaultOpen={grouped[status].length > 0}
+                onAdvance={handleAdvance}
               />
             ))}
           </div>

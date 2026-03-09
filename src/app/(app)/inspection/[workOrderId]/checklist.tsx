@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef } from "react";
 import { saveChecklist } from "./actions";
 import type { ChecklistItemData } from "./actions";
+import { useToast } from "@/components/Toast";
 
 // ---------------------------------------------------------------------------
 // Checklist Template
@@ -261,14 +262,13 @@ export function ChecklistEngine({ workOrderId }: { workOrderId: string }) {
   const [items, setItems] = useState<ChecklistItemData[]>(buildInitialItems);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const { showToast, toastElement } = useToast();
 
   const handleChange = useCallback(
     (id: string, patch: Partial<ChecklistItemData>) => {
       setItems((prev) =>
         prev.map((item) => (item.id === id ? { ...item, ...patch } : item)),
       );
-      setSaved(false);
     },
     [],
   );
@@ -291,10 +291,11 @@ export function ChecklistEngine({ workOrderId }: { workOrderId: string }) {
 
     if (result.error) {
       setSaveError(result.error);
+      showToast(result.error, "error");
     } else {
-      setSaved(true);
+      showToast("Checklist saved ✓");
     }
-  }, [workOrderId, items]);
+  }, [workOrderId, items, showToast]);
 
   // Progress stats
   const total = items.length;
@@ -304,6 +305,8 @@ export function ChecklistEngine({ workOrderId }: { workOrderId: string }) {
 
   return (
     <div className="flex flex-col gap-6">
+      {toastElement}
+
       {/* Progress header */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -354,11 +357,6 @@ export function ChecklistEngine({ workOrderId }: { workOrderId: string }) {
         {saveError && (
           <div className="bg-red-950 border border-red-700 rounded-xl px-4 py-3 text-red-300 text-sm">
             ⚠️ {saveError}
-          </div>
-        )}
-        {saved && (
-          <div className="bg-green-950 border border-green-700 rounded-xl px-4 py-3 text-green-300 text-sm">
-            ✅ Checklist saved successfully.
           </div>
         )}
         <button
