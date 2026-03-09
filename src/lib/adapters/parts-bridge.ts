@@ -17,6 +17,8 @@
  * exercisable without live vendor credentials.
  */
 
+import { z } from "zod";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -112,6 +114,25 @@ const _tokenCache = new Map<string, CachedToken>();
 
 /** Safety buffer (ms) before expiry to proactively refresh the token. */
 const TOKEN_REFRESH_BUFFER_MS = 60_000;
+
+// ---------------------------------------------------------------------------
+// Zod schemas for OAuth token responses
+// ---------------------------------------------------------------------------
+
+const PasswordTokenResponseSchema = z
+  .object({
+    access_token: z.string().optional(),
+    token: z.string().optional(),
+    expires_in: z.number().optional(),
+  })
+  .refine((d) => d.access_token !== undefined || d.token !== undefined, {
+    message: "Token response must include either access_token or token field.",
+  });
+
+const OAuthTokenResponseSchema = z.object({
+  access_token: z.string(),
+  expires_in: z.number().optional(),
+});
 
 // ---------------------------------------------------------------------------
 // Mock catalogue — realistic entries keyed by vehicle category
@@ -412,13 +433,17 @@ export class PartsBridgeAdapter {
         );
       }
 
-      const json = await res.json() as { access_token?: string; token?: string; expires_in?: number };
-      const accessToken = json.access_token ?? json.token;
+      const raw = await res.json();
+      const jsonParsed = PasswordTokenResponseSchema.safeParse(raw);
+      if (!jsonParsed.success) {
+        throw new PartsBridgeError("UPSTREAM_ERROR", `Token response has unexpected shape: ${jsonParsed.error.message}`);
+      }
+      const accessToken = jsonParsed.data.access_token ?? jsonParsed.data.token;
       if (!accessToken) {
         throw new PartsBridgeError("UPSTREAM_ERROR", "Token response missing access_token field.");
       }
 
-      const expiresIn = typeof json.expires_in === "number" ? json.expires_in * 1000 : 3_600_000;
+      const expiresIn = typeof jsonParsed.data.expires_in === "number" ? jsonParsed.data.expires_in * 1000 : 3_600_000;
       const entry: CachedToken = { accessToken, expiresAt: now + expiresIn };
       _tokenCache.set(cacheKey, entry);
       return accessToken;
@@ -454,13 +479,14 @@ export class PartsBridgeAdapter {
         throw new PartsBridgeError("UPSTREAM_ERROR", `OAuth token request failed with HTTP ${res.status}.`);
       }
 
-      const json = await res.json() as { access_token?: string; expires_in?: number };
-      const accessToken = json.access_token;
-      if (!accessToken) {
-        throw new PartsBridgeError("UPSTREAM_ERROR", "OAuth response missing access_token field.");
+      const rawOAuth = await res.json();
+      const oauthParsed = OAuthTokenResponseSchema.safeParse(rawOAuth);
+      if (!oauthParsed.success) {
+        throw new PartsBridgeError("UPSTREAM_ERROR", `OAuth response has unexpected shape: ${oauthParsed.error.message}`);
       }
+      const accessToken = oauthParsed.data.access_token;
 
-      const expiresIn = typeof json.expires_in === "number" ? json.expires_in * 1000 : 3_600_000;
+      const expiresIn = typeof oauthParsed.data.expires_in === "number" ? oauthParsed.data.expires_in * 1000 : 3_600_000;
       const entry: CachedToken = { accessToken, expiresAt: now + expiresIn };
       _tokenCache.set(cacheKey, entry);
       return accessToken;

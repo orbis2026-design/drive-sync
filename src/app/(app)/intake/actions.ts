@@ -3,6 +3,7 @@
 import { createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decodeVinWithNhtsa } from "@/lib/api-adapters/nhtsa";
+import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -147,7 +148,6 @@ export async function decodeVin(
 // ---------------------------------------------------------------------------
 
 export interface CreateTenantVehicleInput {
-  tenantId: string;
   clientId: string;
   globalVehicleId: string;
   vin: string;
@@ -166,6 +166,11 @@ export interface TenantVehicleResult {
 export async function createTenantVehicle(
   input: CreateTenantVehicleInput,
 ): Promise<TenantVehicleResult | DecodeVinError> {
+  const tenantId = await getTenantId();
+  if (!tenantId) {
+    return { error: "Unable to identify tenant from session. Please sign in again." };
+  }
+
   // Validate VIN: must be non-empty and 17 characters when provided
   const vin = input.vin.trim();
   if (vin && vin.length !== 17) {
@@ -177,7 +182,7 @@ export async function createTenantVehicle(
   const { data, error } = await adminDb
     .from("tenant_vehicles")
     .insert({
-      tenant_id: input.tenantId,
+      tenant_id: tenantId,
       client_id: input.clientId,
       global_vehicle_id: input.globalVehicleId,
       vin: vin || null,
