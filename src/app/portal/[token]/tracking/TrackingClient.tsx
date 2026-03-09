@@ -74,7 +74,7 @@ function calcEta(
 }
 
 // ---------------------------------------------------------------------------
-// Simple map placeholder (shows coordinates on a styled tile)
+// Real map embed (OpenStreetMap — no API key required)
 // ---------------------------------------------------------------------------
 
 function MapPlaceholder({
@@ -86,54 +86,42 @@ function MapPlaceholder({
   lng: number;
   arrived: boolean;
 }) {
-  // Link to Google Maps satellite view centred on mechanic
+  // Bounding box: ±0.01° (~1.1 km) around the mechanic's position
+  const delta = 0.01;
+  const bbox = `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`;
+  const osmUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lng}`;
   const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}&z=15`;
 
   return (
-    <a
-      href={mapsUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block relative bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden h-52 sm:h-64 group"
-      aria-label="View mechanic location on Google Maps"
-    >
-      {/* Fake map grid */}
-      <div
-        className="absolute inset-0 opacity-20"
-        style={{
-          backgroundImage:
-            "linear-gradient(#4b5563 1px, transparent 1px), linear-gradient(90deg, #4b5563 1px, transparent 1px)",
-          backgroundSize: "32px 32px",
-        }}
+    <div className="relative bg-gray-800 border border-gray-700 rounded-2xl overflow-hidden h-52 sm:h-64">
+      {/* OpenStreetMap tile embed */}
+      <iframe
+        src={osmUrl}
+        className="absolute inset-0 w-full h-full border-0"
+        title="Mechanic location map"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        sandbox="allow-scripts"
       />
 
-      {/* Vehicle icon */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="relative">
-          <div
-            className={`text-5xl transition-transform ${
-              arrived ? "" : "animate-bounce"
-            }`}
-            style={{ filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.8))" }}
-          >
-            🚐
-          </div>
-          {!arrived && (
-            <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full animate-ping" />
-          )}
-        </div>
-      </div>
+      {/* "Open in Google Maps" overlay button */}
+      <a
+        href={mapsUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="absolute bottom-3 right-3 bg-black/70 backdrop-blur-sm rounded-xl px-3 py-2 text-xs text-sky-400 font-semibold hover:text-sky-300 hover:bg-black/90 transition-colors"
+        aria-label="Open mechanic location in Google Maps"
+      >
+        Open in Google Maps →
+      </a>
 
-      {/* Overlay label */}
-      <div className="absolute bottom-3 left-3 right-3 bg-black/70 backdrop-blur-sm rounded-xl px-3 py-2 flex items-center justify-between">
-        <span className="text-xs text-gray-300 font-mono">
-          {lat.toFixed(4)}, {lng.toFixed(4)}
-        </span>
-        <span className="text-xs text-sky-400 font-semibold group-hover:underline">
-          Open in Maps →
-        </span>
-      </div>
-    </a>
+      {/* Arrived overlay badge */}
+      {arrived && (
+        <div className="absolute top-3 left-3 bg-green-500/90 backdrop-blur-sm rounded-xl px-3 py-1.5 text-xs text-white font-bold">
+          Arrived ✓
+        </div>
+      )}
+    </div>
   );
 }
 
