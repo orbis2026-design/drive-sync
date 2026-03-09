@@ -456,21 +456,88 @@ function ManualCardEntry({ totalCents, isPending, onSubmit, onCancel }: ManualCa
 // CardModePanel
 // ---------------------------------------------------------------------------
 
+type StripeTerminalSDK = {
+  collectPaymentMethod: (
+    clientSecret: string,
+  ) => Promise<{
+    paymentIntent?: { id: string };
+    error?: { message: string };
+  }>;
+  processPayment: (paymentIntent: { id: string }) => Promise<{
+    paymentIntent?: { status: string; id: string };
+    error?: { message: string };
+  }>;
+};
+
 interface CardModePanelProps {
+  workOrderId: string;
   totalCents: number;
   isPending: boolean;
   onProcessPayment: (last4?: string) => void;
 }
 
-function CardModePanel({ totalCents, isPending, onProcessPayment }: CardModePanelProps) {
+function CardModePanel({ workOrderId, totalCents, isPending, onProcessPayment }: CardModePanelProps) {
   const [tapState, setTapState] = useState<TapState>("awaiting");
   const [showManualEntry, setShowManualEntry] = useState(false);
+  const [terminalError, setTerminalError] = useState<string | null>(null);
 
-  function simulateTap() {
+  async function handleAcceptPayment() {
+    setTerminalError(null);
+
+    const terminalSdk = (
+      window as Window & { __stripeTerminal?: StripeTerminalSDK }
+    ).__stripeTerminal;
+
+    if (!terminalSdk) {
+      setTerminalError("Connect a card reader first.");
+      return;
+    }
+
     setTapState("processing");
-    setTimeout(() => {
+    try {
+      const res = await fetch("/api/stripe/payment-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workOrderId, terminalMode: true }),
+      });
+      if (!res.ok) {
+        const errBody: unknown = await res.json().catch(() => ({}));
+        const errMsg =
+          errBody !== null &&
+          typeof errBody === "object" &&
+          "error" in errBody &&
+          typeof (errBody as { error: unknown }).error === "string"
+            ? (errBody as { error: string }).error
+            : `HTTP ${res.status}`;
+        throw new Error(errMsg);
+      }
+      const rawIntent: unknown = await res.json();
+      const clientSecret =
+        rawIntent !== null &&
+        typeof rawIntent === "object" &&
+        "clientSecret" in rawIntent &&
+        typeof (rawIntent as { clientSecret: unknown }).clientSecret === "string"
+          ? (rawIntent as { clientSecret: string }).clientSecret
+          : null;
+      if (!clientSecret) {
+        throw new Error("Payment intent response missing clientSecret.");
+      }
+
+      const collectResult = await terminalSdk.collectPaymentMethod(clientSecret);
+      if (collectResult.error) throw new Error(collectResult.error.message);
+      if (!collectResult.paymentIntent) {
+        throw new Error("No payment intent returned from terminal.");
+      }
+
+      const processResult = await terminalSdk.processPayment(collectResult.paymentIntent);
+      if (processResult.error) throw new Error(processResult.error.message);
+
       onProcessPayment(undefined);
-    }, 2000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Terminal payment failed.";
+      setTerminalError(msg);
+      setTapState("awaiting");
+    }
   }
 
   if (showManualEntry) {
@@ -493,23 +560,38 @@ function CardModePanel({ totalCents, isPending, onProcessPayment }: CardModePane
     );
   }
 
+  const hasTerminal =
+    typeof window !== "undefined" &&
+    !!(window as Window & { __stripeTerminal?: unknown }).__stripeTerminal;
+
   return (
     <div className="flex flex-col items-center gap-6">
       {tapState === "awaiting" && (
         <>
           <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">
-            Hold card near device
+            Hold card near reader
           </p>
           <RadarAnimation />
-          <button
-            type="button"
-            onClick={simulateTap}
-            disabled={isPending}
-            aria-label="Simulate card tap"
-            className="mt-2 rounded-xl bg-gray-800 border border-gray-700 px-5 py-3 text-sm font-bold text-gray-400 hover:text-white hover:border-gray-500 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900"
-          >
-            Simulate Tap
-          </button>
+          {hasTerminal ? (
+            <button
+              type="button"
+              onClick={handleAcceptPayment}
+              disabled={isPending}
+              aria-label="Ready to accept payment"
+              className="mt-2 rounded-xl bg-brand-400 px-5 py-3 text-sm font-bold text-black hover:bg-brand-300 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900 disabled:opacity-50"
+            >
+              Ready to accept payment
+            </button>
+          ) : (
+            <p className="mt-2 text-sm text-gray-500" role="status">
+              Connect a card reader first.
+            </p>
+          )}
+          {terminalError && (
+            <p className="text-sm text-danger-400" role="alert">
+              {terminalError}
+            </p>
+          )}
         </>
       )}
 
@@ -799,6 +881,7 @@ export function CheckoutClient({ data }: CheckoutClientProps) {
         >
           {paymentMode === "card" ? (
             <CardModePanel
+              workOrderId={data.workOrderId}
               totalCents={totalCents}
               isPending={isPending}
               onProcessPayment={handleCardPayment}

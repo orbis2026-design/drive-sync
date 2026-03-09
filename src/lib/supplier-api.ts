@@ -12,6 +12,8 @@
  * allowing the full UI flow to be exercised without a live vendor account.
  */
 
+import { z } from "zod";
+
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
@@ -163,6 +165,14 @@ export async function getSupplierToken(): Promise<AuthToken> {
   }
 
   // --- Dev / test fallback (no live vendor account) ------------------------
+  if (IS_PRODUCTION) {
+    throw new Error(
+      "[supplier-api] Production requires supplier credentials. Set SUPPLIER_BASE_URL, SUPPLIER_CLIENT_ID, SUPPLIER_CLIENT_SECRET.",
+    );
+  }
+  console.warn(
+    "[supplier-api] Using dev-only mock bearer token. Set supplier credentials for real API access.",
+  );
   _cachedToken = {
     accessToken: `mock-bearer-${Date.now()}`,
     expiresAt: now + 3_600_000,
@@ -370,7 +380,35 @@ const MOCK_CATALOGUE: MockEntry[] = [
 // Build category tree from the flat catalogue.
 type CategoryTree = Record<string, string[]>;
 
-export function getCategoryTree(): CategoryTree {
+export async function getCategoryTree(): Promise<CategoryTree> {
+  if (HAS_REAL_CREDENTIALS) {
+    const token = await getSupplierToken();
+    const res = await fetch(`${SUPPLIER_BASE_URL}/categories`, {
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        Accept: "application/json",
+      },
+    });
+    if (!res.ok) {
+      throw new Error(`Supplier categories fetch failed: HTTP ${res.status}`);
+    }
+    const body = (await res.json()) as {
+      categories?: Array<{ name: string; subcategories?: string[] }>;
+    };
+    const tree: CategoryTree = {};
+    for (const cat of body.categories ?? []) {
+      tree[cat.name] = cat.subcategories ?? [];
+    }
+    return tree;
+  }
+
+  if (IS_PRODUCTION) {
+    throw new Error(
+      "[supplier-api] Production requires supplier credentials. Set SUPPLIER_BASE_URL, SUPPLIER_CLIENT_ID, SUPPLIER_CLIENT_SECRET.",
+    );
+  }
+
+  // --- Dev / test: build tree from mock catalogue --------------------------
   const tree: CategoryTree = {};
   for (const entry of MOCK_CATALOGUE) {
     if (!tree[entry.category]) tree[entry.category] = [];
@@ -380,6 +418,47 @@ export function getCategoryTree(): CategoryTree {
   }
   return tree;
 }
+
+// ---------------------------------------------------------------------------
+// Zod schemas for real API response validation
+// ---------------------------------------------------------------------------
+
+const SupplierPartRawSchema = z.object({
+  partNumber: z.string().optional(),
+  part_number: z.string().optional(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  brand: z.string().optional(),
+  manufacturer: z.string().optional(),
+  category: z.string().optional(),
+  subcategory: z.string().optional(),
+  wholesaleCost: z.number().optional(),
+  cost: z.number().optional(),
+  retailPrice: z.number().optional(),
+  price: z.number().optional(),
+  etaMinutes: z.number().optional(),
+  inStock: z.boolean().optional(),
+  qty: z.number().optional(),
+  source: z.string().optional(),
+  supplier: z.string().optional(),
+  sourceUrl: z.string().optional(),
+  url: z.string().optional(),
+  yearStart: z.number().optional(),
+  yearEnd: z.number().optional(),
+  makes: z.array(z.string()).optional(),
+  models: z.array(z.string()).optional(),
+});
+
+const SearchPartsResponseSchema = z.object({
+  results: z.array(SupplierPartRawSchema).optional(),
+  parts: z.array(SupplierPartRawSchema).optional(),
+});
+
+const InventoryResultRawSchema = z.object({
+  inStock: z.boolean().optional(),
+  qty: z.number().optional(),
+  etaMinutes: z.number().optional(),
+});
 
 // ---------------------------------------------------------------------------
 // searchParts — returns catalogue results for a given category/subcategory
@@ -425,11 +504,14 @@ export async function searchParts(
       throw new Error(`Supplier parts search failed: HTTP ${res.status}`);
     }
 
-    const body = (await res.json()) as {
-      results?: Record<string, unknown>[];
-      parts?: Record<string, unknown>[];
-    };
-    const rawParts = body.results ?? body.parts ?? [];
+    const raw = await res.json();
+    const parsed = SearchPartsResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(
+        `Supplier API returned unexpected shape: ${parsed.error.message}`,
+      );
+    }
+    const rawParts = parsed.data.results ?? parsed.data.parts ?? [];
     return rawParts.map((p) => ({
       partNumber: String(p.partNumber ?? p.part_number ?? ""),
       name: String(p.name ?? p.description ?? "Unknown Part"),
@@ -450,8 +532,7 @@ export async function searchParts(
             ? p.price
             : 0) * 100,
       ),
-      etaMinutes:
-        typeof p.etaMinutes === "number" ? p.etaMinutes : 0,
+      etaMinutes: typeof p.etaMinutes === "number" ? p.etaMinutes : 0,
       inStock: Boolean(p.inStock ?? (typeof p.qty === "number" && p.qty > 0)),
       warehouseQty: typeof p.qty === "number" ? p.qty : 0,
       source: String(p.source ?? p.supplier ?? ""),
@@ -461,19 +542,21 @@ export async function searchParts(
           ? ("SAME_DAY" as const)
           : ("ORDER_ONLY" as const),
       fitment: {
-        yearStart:
-          typeof p.yearStart === "number" ? p.yearStart : 1990,
-        yearEnd:
-          typeof p.yearEnd === "number" ? p.yearEnd : 2026,
-        makes: Array.isArray(p.makes) ? (p.makes as string[]) : [],
-        models: Array.isArray(p.models)
-          ? (p.models as string[])
-          : [],
+        yearStart: typeof p.yearStart === "number" ? p.yearStart : 1990,
+        yearEnd: typeof p.yearEnd === "number" ? p.yearEnd : 2026,
+        makes: p.makes ?? [],
+        models: p.models ?? [],
       },
     }));
   }
 
   // --- Dev / test mock catalogue -------------------------------------------
+  if (IS_PRODUCTION) {
+    throw new Error(
+      "[supplier-api] Production requires supplier credentials. Set SUPPLIER_BASE_URL, SUPPLIER_CLIENT_ID, SUPPLIER_CLIENT_SECRET.",
+    );
+  }
+
   const { category, subcategory, query } = options;
 
   let results = MOCK_CATALOGUE.filter((e) => {
@@ -553,17 +636,33 @@ export async function checkInventory(
       return { partNumber, warehouseId, inStock: false, qty: 0, etaMinutes: 0 };
     }
 
-    const body = (await res.json()) as Record<string, unknown>;
+    const raw = await res.json();
+    const parsed = InventoryResultRawSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(
+        `Supplier inventory API returned unexpected shape: ${parsed.error.message}`,
+      );
+    }
     return {
       partNumber,
       warehouseId,
-      inStock: Boolean(body.inStock ?? (typeof body.qty === "number" && body.qty > 0)),
-      qty: typeof body.qty === "number" ? body.qty : 0,
-      etaMinutes: typeof body.etaMinutes === "number" ? body.etaMinutes : 0,
+      inStock: Boolean(
+        parsed.data.inStock ??
+          (typeof parsed.data.qty === "number" && parsed.data.qty > 0),
+      ),
+      qty: typeof parsed.data.qty === "number" ? parsed.data.qty : 0,
+      etaMinutes:
+        typeof parsed.data.etaMinutes === "number" ? parsed.data.etaMinutes : 0,
     };
   }
 
   // --- Dev / test mock -----------------------------------------------------
+  if (IS_PRODUCTION) {
+    throw new Error(
+      "[supplier-api] Production requires supplier credentials. Set SUPPLIER_BASE_URL, SUPPLIER_CLIENT_ID, SUPPLIER_CLIENT_SECRET.",
+    );
+  }
+
   const found = MOCK_CATALOGUE.find((e) => e.partNumber === partNumber);
 
   if (!found) {

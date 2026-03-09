@@ -9,6 +9,8 @@
  * without a live catalog account.
  */
 
+import { z } from "zod";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -188,6 +190,26 @@ function wiperOptionsForSize(driverSize: string, passengerSize: string): PartOpt
 // Main lookup function
 // ---------------------------------------------------------------------------
 
+const PartOptionSchema = z.object({
+  brand: z.string(),
+  partNumber: z.string(),
+  isOem: z.boolean(),
+  retailPriceCents: z.number(),
+});
+
+const QuickSpecsResultSchema = z.object({
+  oilFilter: z.array(PartOptionSchema),
+  airFilter: z.array(PartOptionSchema),
+  cabinAirFilter: z.array(PartOptionSchema),
+  wiperBlades: z.object({
+    sizes: z.object({
+      driver: z.string(),
+      passenger: z.string(),
+    }),
+    options: z.array(PartOptionSchema),
+  }),
+});
+
 /**
  * Fetches compatible part numbers for the given vehicle.
  *
@@ -218,7 +240,14 @@ export async function lookupQuickSpecs(
       throw new Error(`Catalog API error: HTTP ${res.status}`);
     }
 
-    return (await res.json()) as QuickSpecsResult;
+    const raw = await res.json();
+    const parsed = QuickSpecsResultSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(
+        `Catalog API returned unexpected shape: ${parsed.error.message}`,
+      );
+    }
+    return parsed.data;
   }
 
   if (IS_PRODUCTION) {
