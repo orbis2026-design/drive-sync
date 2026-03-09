@@ -186,6 +186,10 @@ export interface PaymentOptionsProps {
   workOrderId: string;
   /** Human-readable quote / work-order title. */
   quoteTitle: string;
+  /** Called when a payment completes successfully. */
+  onPaymentSuccess?: (paymentIntentId: string) => void;
+  /** Called when a payment fails. */
+  onPaymentError?: (message: string) => void;
 }
 
 /**
@@ -198,6 +202,8 @@ export function PaymentOptions({
   totalCents,
   workOrderId,
   quoteTitle,
+  onPaymentSuccess,
+  onPaymentError,
 }: PaymentOptionsProps) {
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -230,27 +236,231 @@ export function PaymentOptions({
         error?: string;
       };
 
-      if (!res.ok || !data.clientSecret) {
+      if (!res.ok || !data.clientSecret || !data.paymentIntentId) {
         throw new Error(data.error ?? "Failed to create payment intent");
       }
 
-      // In a real implementation, load @stripe/stripe-js and call
-      // stripe.confirmCardPayment() / stripe.confirmAfirmPayment() / etc.
-      // For now, we surface the client secret so the caller can proceed.
-      console.info(
-        `[PaymentOptions] PaymentIntent created: ${data.paymentIntentId}`,
-      );
+      const { clientSecret, paymentIntentId } = data;
+      const appUrl =
+        typeof window !== "undefined" ? window.location.origin : "";
+
+      if (mode === "terminal") {
+        // Terminal payments are handled by the SDK connected in handleConnectTerminal.
+        // Surface the client secret so the terminal can collect and process.
+        const terminalSdk = (
+          window as Window & { __stripeTerminal?: { collectPaymentMethod: (s: string) => Promise<{ paymentIntent?: { id: string }; error?: { message: string } }>; processPayment: (pi: { id: string }) => Promise<{ paymentIntent?: { status: string; id: string }; error?: { message: string } }> } }
+        ).__stripeTerminal;
+
+        if (!terminalSdk) {
+          throw new Error(
+            "Stripe Terminal reader not connected. Please connect a reader first.",
+          );
+        }
+
+        const collectResult = await terminalSdk.collectPaymentMethod(clientSecret);
+        if (collectResult.error) {
+          throw new Error(collectResult.error.message);
+        }
+        if (!collectResult.paymentIntent) {
+          throw new Error("No payment intent returned from terminal.");
+        }
+
+        const processResult = await terminalSdk.processPayment(collectResult.paymentIntent);
+        if (processResult.error) {
+          throw new Error(processResult.error.message);
+        }
+        if (processResult.paymentIntent?.status === "requires_capture" ||
+            processResult.paymentIntent?.status === "succeeded") {
+          onPaymentSuccess?.(processResult.paymentIntent.id);
+          return;
+        }
+        throw new Error("Terminal payment did not complete.");
+      }
+
+      // For online payments, attempt to load @stripe/stripe-js dynamically.
+      // Using Function('return import(...)') avoids compile-time module resolution errors.
+      type StripeConfirmResult = {
+        paymentIntent?: { status: string; id: string };
+        error?: { message: string };
+      };
+      type StripeJsInstance = {
+        confirmCardPayment?: (
+          s: string,
+          opts?: object,
+        ) => Promise<StripeConfirmResult>;
+        confirmAffirmPayment?: (
+          s: string,
+          opts: object,
+        ) => Promise<StripeConfirmResult>;
+        confirmKlarnaPayment?: (
+          s: string,
+          opts: object,
+        ) => Promise<StripeConfirmResult>;
+      } | null;
+
+      let stripeJs: StripeJsInstance = null;
+      try {
+        const stripeJsModuleName = "@stripe/stripe-js";
+        // eslint-disable-next-line @typescript-eslint/no-implied-eval
+        const mod = (await new Function(
+          "m",
+          "return import(m)",
+        )(stripeJsModuleName)) as {
+          loadStripe?: (key: string) => Promise<StripeJsInstance>;
+        };
+        const publishableKey =
+          process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
+        if (mod.loadStripe && publishableKey) {
+          stripeJs = await mod.loadStripe(publishableKey);
+        }
+      } catch {
+        // @stripe/stripe-js not installed — fall back to redirect flow.
+        stripeJs = null;
+      }
+
+      if (!stripeJs) {
+        // Fallback: open a Stripe-hosted checkout session.
+        const checkoutRes = await fetch("/api/stripe/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workOrderId }),
+        });
+        const checkoutData = (await checkoutRes.json()) as {
+          url?: string;
+          error?: string;
+        };
+        if (checkoutData.url) {
+          window.location.href = checkoutData.url;
+          return;
+        }
+        throw new Error(
+          checkoutData.error ??
+            "Stripe.js SDK not available. Please install @stripe/stripe-js.",
+        );
+      }
+
+      let result: StripeConfirmResult | undefined;
+
+      if (mode === "card") {
+        result = await stripeJs.confirmCardPayment?.(clientSecret);
+      } else if (mode === "affirm") {
+        result = await stripeJs.confirmAffirmPayment?.(clientSecret, {
+          return_url: `${appUrl}/quotes/${workOrderId}?payment=affirm`,
+        });
+      } else if (mode === "klarna") {
+        result = await stripeJs.confirmKlarnaPayment?.(clientSecret, {
+          return_url: `${appUrl}/quotes/${workOrderId}?payment=klarna`,
+        });
+      }
+
+      if (result?.error) {
+        throw new Error(result.error.message);
+      }
+
+      if (result?.paymentIntent?.status === "succeeded") {
+        onPaymentSuccess?.(result.paymentIntent.id ?? paymentIntentId);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Payment failed");
+      const message = err instanceof Error ? err.message : "Payment failed";
+      setError(message);
+      onPaymentError?.(message);
     } finally {
       setIsLoading(null);
     }
   }
 
-  function handleConnectTerminal() {
+  async function handleConnectTerminal() {
     setTerminalStatus("connecting");
-    // Simulate reader discovery (real impl uses @stripe/terminal-js SDK).
-    setTimeout(() => setTerminalStatus("connected"), 1500);
+    setError(null);
+
+    try {
+      // Fetch a connection token from our API route.
+      const tokenRes = await fetch("/api/stripe/terminal/connection-token", {
+        method: "POST",
+      });
+      const tokenData = (await tokenRes.json()) as {
+        secret?: string;
+        error?: string;
+      };
+
+      if (!tokenRes.ok || !tokenData.secret) {
+        throw new Error(
+          tokenData.error ??
+            "Stripe Terminal SDK not configured. Set STRIPE_TERMINAL_CONNECTION_TOKEN_URL in Settings → Integrations.",
+        );
+      }
+
+      // Attempt to load the Stripe Terminal JS SDK dynamically.
+      type TerminalReader = { id: string; label: string; device_type: string };
+      type StripeTerminalInstance = {
+        discoverReaders: (opts: {
+          simulated?: boolean;
+        }) => Promise<{ discoveredReaders?: TerminalReader[] }>;
+        connectReader: (
+          reader: TerminalReader,
+        ) => Promise<{ reader?: object; error?: { message: string } }>;
+      };
+      type StripeTerminalFactory = {
+        create: (opts: {
+          onFetchConnectionToken: () => Promise<string>;
+          onUnexpectedReaderDisconnect: () => void;
+        }) => StripeTerminalInstance;
+      };
+
+      let StripeTerminal: StripeTerminalFactory | null = null;
+      try {
+        const terminalModuleName = "@stripe/terminal-js";
+        // eslint-disable-next-line @typescript-eslint/no-implied-eval
+        const mod = (await new Function(
+          "m",
+          "return import(m)",
+        )(terminalModuleName)) as
+          | { default?: StripeTerminalFactory }
+          | StripeTerminalFactory;
+        StripeTerminal =
+          (mod as { default?: StripeTerminalFactory }).default ??
+          (mod as StripeTerminalFactory);
+      } catch {
+        StripeTerminal = null;
+      }
+
+      if (!StripeTerminal) {
+        throw new Error(
+          "Stripe Terminal SDK not installed. Run: npm install @stripe/terminal-js",
+        );
+      }
+
+      const connectionSecret = tokenData.secret;
+      const terminal = StripeTerminal.create({
+        onFetchConnectionToken: async () => connectionSecret,
+        onUnexpectedReaderDisconnect: () => {
+          setTerminalStatus("disconnected");
+        },
+      });
+
+      const discoverResult = await terminal.discoverReaders({ simulated: false });
+      const readers = discoverResult.discoveredReaders ?? [];
+
+      if (readers.length === 0) {
+        throw new Error(
+          "No Stripe Terminal readers found. Ensure your reader is powered on and connected to the same network.",
+        );
+      }
+
+      const connectResult = await terminal.connectReader(readers[0]);
+      if (connectResult.error) {
+        throw new Error(connectResult.error.message);
+      }
+
+      // Expose the terminal instance globally so handlePay can use it.
+      (window as Window & { __stripeTerminal?: unknown }).__stripeTerminal = terminal;
+      setTerminalStatus("connected");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to connect Stripe Terminal reader.";
+      setError(message);
+      setTerminalStatus("disconnected");
+    }
   }
 
   // -------------------------------------------------------------------------
