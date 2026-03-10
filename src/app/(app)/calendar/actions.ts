@@ -70,8 +70,14 @@ export async function fetchCalendarData(
           title: true,
           scheduledAt: true,
           status: true,
-          client: { select: { firstName: true, lastName: true, zipCode: true } },
-          vehicle: { select: { make: true, model: true, year: true } },
+          vehicle: {
+            select: {
+              make: true,
+              model: true,
+              year: true,
+              client: { select: { firstName: true, lastName: true, zipCode: true } },
+            },
+          },
         },
         orderBy: { scheduledAt: "asc" },
       }),
@@ -85,8 +91,14 @@ export async function fetchCalendarData(
           id: true,
           title: true,
           status: true,
-          client: { select: { firstName: true, lastName: true } },
-          vehicle: { select: { make: true, model: true, year: true } },
+          vehicle: {
+            select: {
+              make: true,
+              model: true,
+              year: true,
+              client: { select: { firstName: true, lastName: true } },
+            },
+          },
           createdAt: true,
         },
         orderBy: { createdAt: "asc" },
@@ -99,8 +111,12 @@ export async function fetchCalendarData(
       title: string;
       scheduledAt: Date | null;
       status: string;
-      client: { firstName: string; lastName: string; zipCode?: string | null };
-      vehicle: { make: string; model: string; year: number };
+      vehicle: {
+        make: string | null;
+        model: string | null;
+        year: number | null;
+        client: { firstName: string; lastName: string; zipCode?: string | null };
+      };
     }>)
       .filter((w) => w.scheduledAt !== null)
       .map((w) => ({
@@ -110,26 +126,38 @@ export async function fetchCalendarData(
         durationMinutes: 60,
         status: w.status,
         client: {
-          firstName: w.client.firstName,
-          lastName: w.client.lastName,
-          zipCode: w.client.zipCode ?? null,
+          firstName: w.vehicle.client.firstName,
+          lastName: w.vehicle.client.lastName,
+          zipCode: w.vehicle.client.zipCode ?? null,
         },
-        vehicle: w.vehicle,
+        vehicle: {
+          make: w.vehicle.make ?? "",
+          model: w.vehicle.model ?? "",
+          year: w.vehicle.year ?? 0,
+        },
       }));
 
     const backlog: BacklogJob[] = (backlogRaw as Array<{
       id: string;
       title: string;
       status: string;
-      client: { firstName: string; lastName: string };
-      vehicle: { make: string; model: string; year: number };
+      vehicle: {
+        make: string | null;
+        model: string | null;
+        year: number | null;
+        client: { firstName: string; lastName: string };
+      };
       createdAt: Date;
     }>).map((w) => ({
       id: w.id,
       title: w.title,
       status: w.status,
-      client: { firstName: w.client.firstName, lastName: w.client.lastName },
-      vehicle: w.vehicle,
+      client: { firstName: w.vehicle.client.firstName, lastName: w.vehicle.client.lastName },
+      vehicle: {
+        make: w.vehicle.make ?? "",
+        model: w.vehicle.model ?? "",
+        year: w.vehicle.year ?? 0,
+      },
       createdAt: w.createdAt.toISOString(),
     }));
 
@@ -255,18 +283,28 @@ export async function cancelWorkOrder(
         title: true,
         scheduledAt: true,
         status: true,
-        client: { select: { firstName: true, lastName: true, zipCode: true } },
-        vehicle: { select: { make: true, model: true, year: true } },
+        vehicle: {
+          select: {
+            make: true,
+            model: true,
+            year: true,
+            client: { select: { firstName: true, lastName: true, zipCode: true } },
+          },
+        },
       },
       orderBy: { scheduledAt: "asc" },
     });
 
-    const nextClient = nextRaw?.client as
+    const nextClient = nextRaw?.vehicle?.client as
       | { firstName: string; lastName: string; zipCode?: string | null }
       | null;
-    const nextVehicle = nextRaw?.vehicle as
-      | { make: string; model: string; year: number }
-      | null;
+    const nextVehicle = nextRaw?.vehicle
+      ? {
+          make: nextRaw.vehicle.make ?? "",
+          model: nextRaw.vehicle.model ?? "",
+          year: nextRaw.vehicle.year ?? 0,
+        }
+      : null;
 
     const nextJob: ScheduledJob | null =
       nextRaw?.scheduledAt && nextClient && nextVehicle

@@ -85,7 +85,6 @@ export async function createDiagnosticWorkOrder(
       return tx.workOrder.create({
         data: {
           tenantId,
-          clientId: client.id,
           vehicleId: vehicle.id,
           title,
           description:
@@ -216,7 +215,6 @@ export async function sendDiagnosticApprovalSms(
       return tx.workOrder.create({
         data: {
           tenantId,
-          clientId: client.id,
           vehicleId: vehicle.id,
           title,
           description:

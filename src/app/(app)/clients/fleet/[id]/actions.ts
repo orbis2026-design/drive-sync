@@ -77,72 +77,77 @@ export async function fetchFleetData(
             mileageIn: true,
             oilType: true,
             workOrders: {
-              where: {
-                status: {
-                  notIn: ["PAID"],
-                },
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                laborCents: true,
+                partsCents: true,
+                closedAt: true,
+                createdAt: true,
               },
-              select: { id: true },
+              orderBy: { createdAt: "desc" },
             },
           },
           orderBy: { year: "asc" },
-        },
-        workOrders: {
-          select: {
-            id: true,
-            title: true,
-            status: true,
-            laborCents: true,
-            partsCents: true,
-            closedAt: true,
-            vehicle: { select: { make: true, model: true, year: true } },
-          },
-          orderBy: { createdAt: "desc" },
-          take: 100,
         },
       },
     });
 
     if (!client) return { error: "Client not found." };
 
-    // Fleet Spend YTD — sum of PAID work orders this calendar year
     const yearStart = new Date(new Date().getFullYear(), 0, 1);
     let fleetSpendYTDCents = 0;
 
-    const vehicles: FleetVehicle[] = (client.vehicles as Array<{
+    type VehicleRow = {
       id: string;
-      make: string;
-      model: string;
-      year: number;
+      make: string | null;
+      model: string | null;
+      year: number | null;
       plate: string | null;
       vin: string | null;
       color: string | null;
       mileageIn: number | null;
       oilType: string | null;
-      workOrders: { id: string }[];
-    }>).map((v) => ({
+      workOrders: {
+        id: string;
+        title: string;
+        status: string;
+        laborCents: number;
+        partsCents: number;
+        closedAt: Date | null;
+        createdAt: Date;
+      }[];
+    };
+
+    const vehicleRows = client.vehicles as VehicleRow[];
+
+    const vehicles: FleetVehicle[] = vehicleRows.map((v) => ({
       id: v.id,
-      make: v.make,
-      model: v.model,
-      year: v.year,
+      make: v.make ?? "",
+      model: v.model ?? "",
+      year: v.year ?? 0,
       plate: v.plate,
       vin: v.vin,
       color: v.color,
       mileageIn: v.mileageIn,
       oilType: v.oilType,
-      openJobCount: v.workOrders.length,
+      openJobCount: v.workOrders.filter((w) => w.status !== "PAID").length,
       lastServiceDate: null,
     }));
 
-    const completedOrders: FleetWorkOrder[] = (client.workOrders as Array<{
-      id: string;
-      title: string;
-      status: string;
-      laborCents: number;
-      partsCents: number;
-      closedAt: Date | null;
-      vehicle: { make: string; model: string; year: number };
-    }>)
+    // Collect all work orders from all vehicles (sorted desc by createdAt, capped at 100)
+    const allWorkOrders = vehicleRows
+      .flatMap((v) =>
+        v.workOrders.map((w) => ({
+          ...w,
+          vehicle: { make: v.make, model: v.model, year: v.year },
+        })),
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 100);
+
+    const completedOrders: FleetWorkOrder[] = allWorkOrders
       .filter((w) => ["COMPLETE", "INVOICED", "PAID"].includes(w.status))
       .map((w) => {
         const subtotal = w.laborCents + w.partsCents;
@@ -163,7 +168,7 @@ export async function fetchFleetData(
           laborCents: w.laborCents,
           partsCents: w.partsCents,
           totalCents: total,
-          vehicleLabel: `${w.vehicle.year} ${w.vehicle.make} ${w.vehicle.model}`,
+          vehicleLabel: `${w.vehicle.year ?? 0} ${w.vehicle.make ?? ""} ${w.vehicle.model ?? ""}`,
           closedAt: w.closedAt ? w.closedAt.toISOString() : null,
         };
       });

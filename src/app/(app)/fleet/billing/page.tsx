@@ -60,7 +60,7 @@ async function fetchCompletedWorkOrders(
   try {
     const rows = await prisma.workOrder.findMany({
       where: {
-        clientId,
+        vehicle: { clientId },
         status: { in: ["COMPLETE", "INVOICED"] },
         closedAt: { gte: from, lte: to },
       },
@@ -81,12 +81,12 @@ async function fetchCompletedWorkOrders(
       laborCents: number;
       partsCents: number;
       closedAt: Date | null;
-      vehicle: { make: string; model: string; year: number; plate: string | null };
+      vehicle: { make: string | null; model: string | null; year: number | null; plate: string | null };
     };
 
     return (rows as WoRow[]).map((wo) => {
       const plate = wo.vehicle.plate ? `Van ${wo.vehicle.plate}` : "Van";
-      const vehicleLabel = `${plate} — ${wo.vehicle.year} ${wo.vehicle.make} ${wo.vehicle.model}`;
+      const vehicleLabel = `${plate} — ${wo.vehicle.year ?? ""} ${wo.vehicle.make ?? ""} ${wo.vehicle.model ?? ""}`.trim();
       return {
         id: wo.id,
         title: wo.title,

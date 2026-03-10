@@ -69,8 +69,12 @@ export async function getCheckoutData(
     tenantId: string;
     closedAt: Date | null;
     paymentMethod: string | null;
-    client: { firstName: string; lastName: string; phone: string };
-    vehicle: { make: string; model: string; year: number };
+    vehicle: {
+      make: string | null;
+      model: string | null;
+      year: number | null;
+      client: { firstName: string; lastName: string; phone: string };
+    };
   } | null = null;
 
   try {
@@ -85,8 +89,14 @@ export async function getCheckoutData(
         tenantId: true,
         closedAt: true,
         paymentMethod: true,
-        client: { select: { firstName: true, lastName: true, phone: true } },
-        vehicle: { select: { make: true, model: true, year: true } },
+        vehicle: {
+          select: {
+            make: true,
+            model: true,
+            year: true,
+            client: { select: { firstName: true, lastName: true, phone: true } },
+          },
+        },
       },
     });
   } catch {
@@ -133,8 +143,12 @@ export async function getCheckoutData(
       isPaid,
       closedAt: workOrder.closedAt ? workOrder.closedAt.toISOString() : null,
       paymentMethod: workOrder.paymentMethod,
-      client: workOrder.client,
-      vehicle: workOrder.vehicle,
+      client: workOrder.vehicle.client,
+      vehicle: {
+        make: workOrder.vehicle.make ?? "",
+        model: workOrder.vehicle.model ?? "",
+        year: workOrder.vehicle.year ?? 0,
+      },
     },
   };
 }

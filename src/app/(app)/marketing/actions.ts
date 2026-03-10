@@ -173,9 +173,9 @@ export async function fetchRetentionQueue(): Promise<
           clientName: `${vehicle.client.firstName} ${vehicle.client.lastName}`,
           phone: vehicle.client.phone,
           vehicleId: vehicle.id,
-          vehicleMake: vehicle.make,
-          vehicleModel: vehicle.model,
-          vehicleYear: vehicle.year,
+          vehicleMake: vehicle.make ?? "",
+          vehicleModel: vehicle.model ?? "",
+          vehicleYear: vehicle.year ?? 0,
           currentMileage: projectedMileage,
           approachingMilestone: nextOccurrence,
           smsDraft,
@@ -423,15 +423,14 @@ export async function sendBlastCampaign(
       const months = audience === "INACTIVE_6M" ? 6 : 3;
       cutoff.setMonth(cutoff.getMonth() - months);
 
-      const recentClients = await prisma.workOrder.findMany({
+      const recentWOs = await prisma.workOrder.findMany({
         where: {
           tenantId,
           closedAt: { gte: cutoff },
         },
-        select: { clientId: true },
-        distinct: ["clientId"],
+        select: { vehicle: { select: { clientId: true } } },
       });
-      const recentIds = new Set(recentClients.map((r: (typeof recentClients)[number]) => r.clientId));
+      const recentIds = new Set(recentWOs.map((r: (typeof recentWOs)[number]) => r.vehicle.clientId));
 
       const all = await prisma.client.findMany({
         where: { tenantId, opted_out_sms: false },
@@ -445,12 +444,11 @@ export async function sendBlastCampaign(
         where: {
           tenantId,
           closedAt: { lte: cutoff },
-          client: { opted_out_sms: false },
+          vehicle: { client: { opted_out_sms: false } },
         },
-        select: { clientId: true },
-        distinct: ["clientId"],
+        select: { vehicle: { select: { clientId: true } } },
       });
-      clientIds = old.map((r: (typeof old)[number]) => r.clientId);
+      clientIds = [...new Set(old.map((r: (typeof old)[number]) => r.vehicle.clientId))];
     } else {
       // ALL — excluding opted-out clients
       const all = await prisma.client.findMany({

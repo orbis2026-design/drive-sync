@@ -134,13 +134,13 @@ export async function getPortalData(
     status: string;
     laborCents: number;
     partsCents: number;
-    client: { firstName: string; lastName: string };
     vehicle: {
-      make: string;
-      model: string;
-      year: number;
+      make: string | null;
+      model: string | null;
+      year: number | null;
       color: string | null;
       mileageIn: number | null;
+      client: { firstName: string; lastName: string };
     };
   } | null = null;
 
@@ -153,7 +153,6 @@ export async function getPortalData(
         status: true,
         laborCents: true,
         partsCents: true,
-        client: { select: { firstName: true, lastName: true } },
         vehicle: {
           select: {
             make: true,
@@ -161,6 +160,7 @@ export async function getPortalData(
             year: true,
             color: true,
             mileageIn: true,
+            client: { select: { firstName: true, lastName: true } },
           },
         },
       },
@@ -193,8 +193,14 @@ export async function getPortalData(
       totalCents,
       parts,
       mpi,
-      client: workOrder.client,
-      vehicle: workOrder.vehicle,
+      client: workOrder.vehicle.client,
+      vehicle: {
+        make: workOrder.vehicle.make ?? "",
+        model: workOrder.vehicle.model ?? "",
+        year: workOrder.vehicle.year ?? 0,
+        color: workOrder.vehicle.color,
+        mileageIn: workOrder.vehicle.mileageIn,
+      },
     },
   };
 }

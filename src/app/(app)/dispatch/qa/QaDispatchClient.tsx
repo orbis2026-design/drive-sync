@@ -15,6 +15,7 @@
 
 import { useState, useTransition } from "react";
 import type { QaWorkOrder } from "./page";
+import { EmptyState } from "@/components/EmptyState";
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -134,14 +135,11 @@ export function QaDispatchClient({ workOrders }: QaDispatchClientProps) {
         </div>
 
         {queue.length === 0 && (
-          <div className="bg-gray-900 border border-gray-700 rounded-xl px-6 py-12 text-center">
-            <p className="text-4xl mb-3">✅</p>
-            <p className="text-gray-300 font-semibold">All clear — no items in the QA queue.</p>
-            <p className="text-gray-500 text-sm mt-1">
-              When a tech flags pre-existing damage or opens a change order, it
-              will appear here for your review.
-            </p>
-          </div>
+          <EmptyState
+            icon="✅"
+            title="QA queue is clear"
+            description="No flagged jobs or pending approvals. Nice work keeping a clean shop."
+          />
         )}
 
         {queue.map((wo) => {

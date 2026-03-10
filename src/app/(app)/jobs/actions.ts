@@ -58,8 +58,14 @@ const getCachedActiveJobs = unstable_cache(
         laborCents: true,
         partsCents: true,
         createdAt: true,
-        client: { select: { firstName: true, lastName: true } },
-        vehicle: { select: { make: true, model: true, year: true } },
+        vehicle: {
+          select: {
+            make: true,
+            model: true,
+            year: true,
+            client: { select: { firstName: true, lastName: true } },
+          },
+        },
       },
     });
 
@@ -79,13 +85,13 @@ const getCachedActiveJobs = unstable_cache(
         totalCents,
         createdAt: row.createdAt.toISOString(),
         client: {
-          firstName: row.client.firstName,
-          lastName: row.client.lastName,
+          firstName: row.vehicle.client.firstName,
+          lastName: row.vehicle.client.lastName,
         },
         vehicle: {
-          make: row.vehicle.make,
-          model: row.vehicle.model,
-          year: row.vehicle.year,
+          make: row.vehicle.make ?? "",
+          model: row.vehicle.model ?? "",
+          year: row.vehicle.year ?? 0,
         },
       };
     });

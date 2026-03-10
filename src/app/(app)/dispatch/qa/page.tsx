@@ -77,9 +77,14 @@ async function fetchQaQueue(): Promise<QaWorkOrder[]> {
         status: true,
         hasDamageFlag: true,
         vehicle: {
-          select: { make: true, model: true, year: true, plate: true },
+          select: {
+            make: true,
+            model: true,
+            year: true,
+            plate: true,
+            client: { select: { firstName: true, lastName: true } },
+          },
         },
-        client: { select: { firstName: true, lastName: true } },
       },
     });
 
@@ -89,13 +94,18 @@ async function fetchQaQueue(): Promise<QaWorkOrder[]> {
       notes: string | null;
       status: string;
       hasDamageFlag: boolean;
-      vehicle: { make: string; model: string; year: number; plate: string | null };
-      client: { firstName: string; lastName: string };
+      vehicle: {
+        make: string | null;
+        model: string | null;
+        year: number | null;
+        plate: string | null;
+        client: { firstName: string; lastName: string };
+      };
     };
 
     return (rows as QaRow[]).map((wo) => {
       const plate = wo.vehicle.plate ? ` — ${wo.vehicle.plate}` : "";
-      const vehicleLabel = `${wo.vehicle.year} ${wo.vehicle.make} ${wo.vehicle.model}${plate}`;
+      const vehicleLabel = `${wo.vehicle.year ?? ""} ${wo.vehicle.make ?? ""} ${wo.vehicle.model ?? ""}${plate}`.trim();
       return {
         id: wo.id,
         title: wo.title,
@@ -103,7 +113,7 @@ async function fetchQaQueue(): Promise<QaWorkOrder[]> {
         hasDamageFlag: wo.hasDamageFlag,
         isChangeOrder: wo.status === "BLOCKED_WAITING_APPROVAL",
         vehicleLabel,
-        clientName: `${wo.client.firstName} ${wo.client.lastName}`,
+        clientName: `${wo.vehicle.client.firstName} ${wo.vehicle.client.lastName}`,
         mediaUrls: parseMediaUrls(wo.id, wo.notes),
       };
     });

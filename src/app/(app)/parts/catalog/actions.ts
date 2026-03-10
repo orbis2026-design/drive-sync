@@ -48,9 +48,9 @@ export async function fetchActiveWorkOrders(): Promise<
         title: row.title,
         status: row.status,
         vehicle: {
-          year: row.vehicle.year,
-          make: row.vehicle.make,
-          model: row.vehicle.model,
+          year: row.vehicle.year ?? 0,
+          make: row.vehicle.make ?? "",
+          model: row.vehicle.model ?? "",
           vin: row.vehicle.vin ?? null,
         },
       }),

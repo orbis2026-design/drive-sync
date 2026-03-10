@@ -389,9 +389,12 @@ export async function getSendPageData(
     laborCents: number;
     partsCents: number;
     tenantId: string;
-    clientId: string;
-    client: { firstName: string; lastName: string; phone: string };
-    vehicle: { make: string; model: string; year: number };
+    vehicle: {
+      make: string | null;
+      model: string | null;
+      year: number | null;
+      client: { firstName: string; lastName: string; phone: string };
+    };
   } | null = null;
 
   try {
@@ -404,9 +407,14 @@ export async function getSendPageData(
         laborCents: true,
         partsCents: true,
         tenantId: true,
-        clientId: true,
-        client: { select: { firstName: true, lastName: true, phone: true } },
-        vehicle: { select: { make: true, model: true, year: true } },
+        vehicle: {
+          select: {
+            make: true,
+            model: true,
+            year: true,
+            client: { select: { firstName: true, lastName: true, phone: true } },
+          },
+        },
       },
     });
   } catch {
@@ -439,8 +447,12 @@ export async function getSendPageData(
       partsCents: workOrder.partsCents,
       parts,
       shopRateCents,
-      client: workOrder.client,
-      vehicle: workOrder.vehicle,
+      client: workOrder.vehicle.client,
+      vehicle: {
+        make: workOrder.vehicle.make ?? "",
+        model: workOrder.vehicle.model ?? "",
+        year: workOrder.vehicle.year ?? 0,
+      },
     },
   };
 }
@@ -474,7 +486,7 @@ export async function sendQuote(
     status: string;
     title: string;
     approvalToken: string | null;
-    client: { firstName: string; lastName: string; phone: string };
+    vehicle: { client: { firstName: string; lastName: string; phone: string } };
   } | null = null;
 
   try {
@@ -484,7 +496,7 @@ export async function sendQuote(
         status: true,
         title: true,
         approvalToken: true,
-        client: { select: { firstName: true, lastName: true, phone: true } },
+        vehicle: { select: { client: { select: { firstName: true, lastName: true, phone: true } } } },
       },
     });
   } catch (err) {
@@ -549,7 +561,7 @@ export async function sendQuote(
     `Your mechanic has finished diagnosing your vehicle. ` +
     `Tap here to review and approve the repair quote: ${portalUrl}`;
 
-  const smsResult = await sendSMS(workOrder.client.phone, smsBody);
+  const smsResult = await sendSMS(workOrder.vehicle.client.phone, smsBody);
   if (!smsResult.success) {
     console.error("[sendQuote] SMS delivery failed:", smsResult.error);
   }
@@ -621,7 +633,7 @@ export async function submitChangeOrder(
     status: string;
     title: string;
     deltaApprovalToken: string | null;
-    client: { firstName: string; lastName: string; phone: string };
+    vehicle: { client: { firstName: string; lastName: string; phone: string } };
   } | null = null;
 
   try {
@@ -631,7 +643,7 @@ export async function submitChangeOrder(
         status: true,
         title: true,
         deltaApprovalToken: true,
-        client: { select: { firstName: true, lastName: true, phone: true } },
+        vehicle: { select: { client: { select: { firstName: true, lastName: true, phone: true } } } },
       },
     });
   } catch (err) {
@@ -693,7 +705,7 @@ export async function submitChangeOrder(
     `URGENT: Your mechanic has discovered additional work required on your ` +
     `${workOrder.title}. Tap here to review and approve the change order: ${portalUrl}`;
 
-  const smsResult = await sendSMS(workOrder.client.phone, smsBody);
+  const smsResult = await sendSMS(workOrder.vehicle.client.phone, smsBody);
   if (!smsResult.success) {
     console.error("[submitChangeOrder] SMS delivery failed:", smsResult.error);
   }
@@ -744,7 +756,7 @@ export async function submitSupplementalChangeOrder(
     status: string;
     title: string;
     deltaApprovalToken: string | null;
-    client: { firstName: string; lastName: string; phone: string };
+    vehicle: { client: { firstName: string; lastName: string; phone: string } };
   } | null = null;
 
   try {
@@ -754,7 +766,7 @@ export async function submitSupplementalChangeOrder(
         status: true,
         title: true,
         deltaApprovalToken: true,
-        client: { select: { firstName: true, lastName: true, phone: true } },
+        vehicle: { select: { client: { select: { firstName: true, lastName: true, phone: true } } } },
       },
     });
   } catch (err) {
@@ -821,7 +833,7 @@ export async function submitSupplementalChangeOrder(
     `URGENT: Your mechanic discovered a secondary issue mid-repair on your ` +
     `${workOrder.title}. Additional work requires your sign-off. Tap to review: ${portalUrl}`;
 
-  const smsResult = await sendSMS(workOrder.client.phone, smsBody);
+  const smsResult = await sendSMS(workOrder.vehicle.client.phone, smsBody);
   if (!smsResult.success) {
     console.error(
       "[submitSupplementalChangeOrder] SMS delivery failed:",

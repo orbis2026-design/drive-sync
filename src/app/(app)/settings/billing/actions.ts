@@ -263,7 +263,7 @@ export async function redeemCodeFromBilling(
       // No tenant yet — fetch user email and create one.
       const {
         data: { user },
-      } = await admin.auth.admin.getUserById(userId);
+      } = await admin.auth.admin.getUserById(userId as string);
       const email = user?.email ?? `${userId}@unknown`;
       const slug = generateSlug(email);
       const name = email.split("@")[0];

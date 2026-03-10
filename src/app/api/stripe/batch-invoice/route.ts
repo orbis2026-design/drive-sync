@@ -106,14 +106,14 @@ export async function POST(req: NextRequest) {
     title: string;
     laborCents: number;
     partsCents: number;
-    vehicle: { make: string; model: string; year: number; plate: string | null };
+    vehicle: { make: string | null; model: string | null; year: number | null; plate: string | null };
   }[] = [];
 
   try {
     workOrders = await prisma.workOrder.findMany({
       where: {
         id: { in: workOrderIds },
-        clientId,
+        vehicle: { clientId },
         status: { in: ["COMPLETE", "INVOICED", "PENDING_APPROVAL"] },
       },
       select: {
@@ -183,7 +183,7 @@ export async function POST(req: NextRequest) {
     // Add each WorkOrder as an individual line item.
     for (const wo of workOrders) {
       const plate = wo.vehicle.plate ? `Van ${wo.vehicle.plate}` : "Vehicle";
-      const vehicleDesc = `${plate} — ${wo.vehicle.year} ${wo.vehicle.make} ${wo.vehicle.model}`;
+      const vehicleDesc = `${plate} — ${wo.vehicle.year ?? 0} ${wo.vehicle.make ?? ""} ${wo.vehicle.model ?? ""}`;
       const totalCents = wo.laborCents + wo.partsCents;
 
       await stripe.invoiceItems.create({
