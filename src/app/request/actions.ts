@@ -80,66 +80,69 @@ export async function submitIntakeRequest(
     }
   }
 
-  try {
-    // Upsert the client first.
-    const existingClient = await prisma.client.findFirst({
-      where: { tenantId: payload.tenantId, phone: payload.phone },
-      select: { id: true },
-    });
+  // Build title and description from the complaint (used in both the
+  // transaction and the best-effort Supabase mirror write).
+  const title = payload.complaint.slice(0, 80);
+  const description = [
+    `Complaint: ${payload.complaint}`,
+    payload.cause ? `Cause: ${payload.cause}` : null,
+    payload.correction ? `Correction: ${payload.correction}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-    let clientId: string;
-    if (existingClient) {
-      clientId = existingClient.id;
-    } else {
-      const newClient = await prisma.client.create({
+  try {
+    const workOrder = await prisma.$transaction(async (tx) => {
+      // Upsert the client first.
+      const existingClient = await tx.client.findFirst({
+        where: { tenantId: payload.tenantId, phone: payload.phone },
+        select: { id: true },
+      });
+
+      let clientId: string;
+      if (existingClient) {
+        clientId = existingClient.id;
+      } else {
+        const newClient = await tx.client.create({
+          data: {
+            tenantId: payload.tenantId,
+            firstName: payload.firstName,
+            lastName: payload.lastName,
+            email: payload.email || undefined,
+            phone: payload.phone,
+          },
+          select: { id: true },
+        });
+        clientId = newClient.id;
+      }
+
+      // Create a minimal Vehicle record.
+      const vehicle = await tx.vehicle.create({
         data: {
           tenantId: payload.tenantId,
-          firstName: payload.firstName,
-          lastName: payload.lastName,
-          email: payload.email || undefined,
-          phone: payload.phone,
+          clientId,
+          make: payload.make || "Unknown",
+          model: payload.model || "Unknown",
+          year: payload.year || new Date().getFullYear(),
+          vin: payload.vin || undefined,
+          plate: payload.plate || undefined,
         },
         select: { id: true },
       });
-      clientId = newClient.id;
-    }
 
-    // Create a minimal Vehicle record.
-    const vehicle = await prisma.vehicle.create({
-      data: {
-        tenantId: payload.tenantId,
-        clientId,
-        make: payload.make || "Unknown",
-        model: payload.model || "Unknown",
-        year: payload.year || new Date().getFullYear(),
-        vin: payload.vin || undefined,
-        plate: payload.plate || undefined,
-      },
-      select: { id: true },
-    });
-
-    // Build the title from complaint.
-    const title = payload.complaint.slice(0, 80);
-    const description = [
-      `Complaint: ${payload.complaint}`,
-      payload.cause ? `Cause: ${payload.cause}` : null,
-      payload.correction ? `Correction: ${payload.correction}` : null,
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    // Create the WorkOrder with REQUESTED status.
-    const workOrder = await prisma.workOrder.create({
-      data: {
-        tenantId: payload.tenantId,
-        clientId,
-        vehicleId: vehicle.id,
-        status: "REQUESTED",
-        title,
-        description,
-        notes: intakePhotoUrl ? `Intake photo: ${intakePhotoUrl}` : undefined,
-      },
-      select: { id: true },
+      // Create the WorkOrder with REQUESTED status.
+      return tx.workOrder.create({
+        data: {
+          tenantId: payload.tenantId,
+          clientId,
+          vehicleId: vehicle.id,
+          status: "REQUESTED",
+          title,
+          description,
+          notes: intakePhotoUrl ? `Intake photo: ${intakePhotoUrl}` : undefined,
+        },
+        select: { id: true },
+      });
     });
 
     // Mirror to Supabase (best-effort) so the dashboard can receive the

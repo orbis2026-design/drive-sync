@@ -29,74 +29,76 @@ export async function createDiagnosticWorkOrder(
   const { tenantId } = await verifySession();
 
   try {
-    // --- Upsert client --------------------------------------------------
-    let client = await prisma.client.findFirst({
-      where: { tenantId, phone: params.clientPhone },
-      select: { id: true },
-    });
-
-    if (!client) {
-      client = await prisma.client.create({
-        data: {
-          tenantId,
-          firstName: params.clientFirstName,
-          lastName: params.clientLastName,
-          phone: params.clientPhone,
-        },
+    const workOrder = await prisma.$transaction(async (tx) => {
+      // --- Upsert client --------------------------------------------------
+      let client = await tx.client.findFirst({
+        where: { tenantId, phone: params.clientPhone },
         select: { id: true },
       });
-    }
 
-    // --- Upsert vehicle -------------------------------------------------
-    const vehicleYear = params.vehicleYear > 0 ? params.vehicleYear : null;
+      if (!client) {
+        client = await tx.client.create({
+          data: {
+            tenantId,
+            firstName: params.clientFirstName,
+            lastName: params.clientLastName,
+            phone: params.clientPhone,
+          },
+          select: { id: true },
+        });
+      }
 
-    let vehicle = await prisma.vehicle.findFirst({
-      where: {
-        tenantId,
-        clientId: client.id,
-        make: params.vehicleMake,
-        model: params.vehicleModel,
-        ...(vehicleYear !== null ? { year: vehicleYear } : {}),
-      },
-      select: { id: true },
-    });
+      // --- Upsert vehicle -------------------------------------------------
+      const vehicleYear = params.vehicleYear > 0 ? params.vehicleYear : null;
 
-    if (!vehicle) {
-      vehicle = await prisma.vehicle.create({
-        data: {
+      let vehicle = await tx.vehicle.findFirst({
+        where: {
           tenantId,
           clientId: client.id,
           make: params.vehicleMake,
           model: params.vehicleModel,
-          year: vehicleYear ?? new Date().getFullYear(),
-          vin: params.vin || null,
-          mileageIn: params.mileage || null,
+          ...(vehicleYear !== null ? { year: vehicleYear } : {}),
         },
         select: { id: true },
       });
-    }
 
-    // --- Create diagnostic WorkOrder ------------------------------------
-    const title = vehicleYear
-      ? `Diagnostic — ${vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`
-      : `Diagnostic — ${params.vehicleMake} ${params.vehicleModel}`;
+      if (!vehicle) {
+        vehicle = await tx.vehicle.create({
+          data: {
+            tenantId,
+            clientId: client.id,
+            make: params.vehicleMake,
+            model: params.vehicleModel,
+            year: vehicleYear ?? new Date().getFullYear(),
+            vin: params.vin || null,
+            mileageIn: params.mileage || null,
+          },
+          select: { id: true },
+        });
+      }
 
-    const workOrder = await prisma.workOrder.create({
-      data: {
-        tenantId,
-        clientId: client.id,
-        vehicleId: vehicle.id,
-        title,
-        description:
-          params.symptom || "OBD-II scan and vehicle inspection.",
-        status: "ACTIVE",
-        isDiagnostic: true,
-        diagnosticFeeCents: params.diagnosticFeeCents,
-        rollDiagnosticFee: params.rollDiagnosticFee,
-        // If rolling the fee, credit it as labour so it shows on the quote.
-        laborCents: params.rollDiagnosticFee ? params.diagnosticFeeCents : 0,
-      },
-      select: { id: true },
+      // --- Create diagnostic WorkOrder ------------------------------------
+      const title = vehicleYear
+        ? `Diagnostic — ${vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`
+        : `Diagnostic — ${params.vehicleMake} ${params.vehicleModel}`;
+
+      return tx.workOrder.create({
+        data: {
+          tenantId,
+          clientId: client.id,
+          vehicleId: vehicle.id,
+          title,
+          description:
+            params.symptom || "OBD-II scan and vehicle inspection.",
+          status: "ACTIVE",
+          isDiagnostic: true,
+          diagnosticFeeCents: params.diagnosticFeeCents,
+          rollDiagnosticFee: params.rollDiagnosticFee,
+          // If rolling the fee, credit it as labour so it shows on the quote.
+          laborCents: params.rollDiagnosticFee ? params.diagnosticFeeCents : 0,
+        },
+        select: { id: true, title: true },
+      });
     });
 
     // Mirror to Supabase (best-effort).
@@ -105,7 +107,7 @@ export async function createDiagnosticWorkOrder(
       await adminDb.from("work_orders").insert({
         id: workOrder.id,
         tenant_id: tenantId,
-        title,
+        title: workOrder.title,
         status: "ACTIVE",
         is_diagnostic: true,
         diagnostic_fee_cents: params.diagnosticFeeCents,
@@ -156,79 +158,81 @@ export async function sendDiagnosticApprovalSms(
   const { tenantId } = await verifySession();
 
   try {
-    // --- Upsert client ------------------------------------------------------
-    let client = await prisma.client.findFirst({
-      where: { tenantId, phone: params.clientPhone },
-      select: { id: true },
-    });
+    const approvalToken = crypto.randomUUID();
 
-    if (!client) {
-      client = await prisma.client.create({
-        data: {
-          tenantId,
-          firstName: params.clientFirstName,
-          lastName: params.clientLastName,
-          phone: params.clientPhone,
-        },
+    const workOrder = await prisma.$transaction(async (tx) => {
+      // --- Upsert client ------------------------------------------------------
+      let client = await tx.client.findFirst({
+        where: { tenantId, phone: params.clientPhone },
         select: { id: true },
       });
-    }
 
-    // --- Upsert vehicle -----------------------------------------------------
-    const vehicleYear = params.vehicleYear > 0 ? params.vehicleYear : null;
+      if (!client) {
+        client = await tx.client.create({
+          data: {
+            tenantId,
+            firstName: params.clientFirstName,
+            lastName: params.clientLastName,
+            phone: params.clientPhone,
+          },
+          select: { id: true },
+        });
+      }
 
-    let vehicle = await prisma.vehicle.findFirst({
-      where: {
-        tenantId,
-        clientId: client.id,
-        make: params.vehicleMake,
-        model: params.vehicleModel,
-        ...(vehicleYear !== null ? { year: vehicleYear } : {}),
-      },
-      select: { id: true },
-    });
+      // --- Upsert vehicle -----------------------------------------------------
+      const vehicleYear = params.vehicleYear > 0 ? params.vehicleYear : null;
 
-    if (!vehicle) {
-      vehicle = await prisma.vehicle.create({
-        data: {
+      let vehicle = await tx.vehicle.findFirst({
+        where: {
           tenantId,
           clientId: client.id,
           make: params.vehicleMake,
           model: params.vehicleModel,
-          year: vehicleYear ?? new Date().getFullYear(),
-          vin: params.vin || null,
-          mileageIn: params.mileage || null,
+          ...(vehicleYear !== null ? { year: vehicleYear } : {}),
         },
         select: { id: true },
       });
-    }
 
-    // --- Create pending diagnostic WorkOrder with unique approval token -----
-    const approvalToken = crypto.randomUUID();
+      if (!vehicle) {
+        vehicle = await tx.vehicle.create({
+          data: {
+            tenantId,
+            clientId: client.id,
+            make: params.vehicleMake,
+            model: params.vehicleModel,
+            year: vehicleYear ?? new Date().getFullYear(),
+            vin: params.vin || null,
+            mileageIn: params.mileage || null,
+          },
+          select: { id: true },
+        });
+      }
 
-    const title = vehicleYear
-      ? `Diagnostic — ${vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`
-      : `Diagnostic — ${params.vehicleMake} ${params.vehicleModel}`;
+      // --- Create pending diagnostic WorkOrder with unique approval token -----
+      const title = vehicleYear
+        ? `Diagnostic — ${vehicleYear} ${params.vehicleMake} ${params.vehicleModel}`
+        : `Diagnostic — ${params.vehicleMake} ${params.vehicleModel}`;
 
-    const workOrder = await prisma.workOrder.create({
-      data: {
-        tenantId,
-        clientId: client.id,
-        vehicleId: vehicle.id,
-        title,
-        description:
-          params.symptom || "OBD-II scan and vehicle inspection.",
-        status: "PENDING_APPROVAL",
-        approvalToken,
-        isDiagnostic: true,
-        diagnosticFeeCents: params.diagnosticFeeCents,
-        rollDiagnosticFee: params.rollDiagnosticFee,
-        laborCents: params.rollDiagnosticFee ? params.diagnosticFeeCents : 0,
-      },
-      select: { id: true },
+      return tx.workOrder.create({
+        data: {
+          tenantId,
+          clientId: client.id,
+          vehicleId: vehicle.id,
+          title,
+          description:
+            params.symptom || "OBD-II scan and vehicle inspection.",
+          status: "PENDING_APPROVAL",
+          approvalToken,
+          isDiagnostic: true,
+          diagnosticFeeCents: params.diagnosticFeeCents,
+          rollDiagnosticFee: params.rollDiagnosticFee,
+          laborCents: params.rollDiagnosticFee ? params.diagnosticFeeCents : 0,
+        },
+        select: { id: true, title: true },
+      });
     });
 
-    // --- Send SMS via Twilio ------------------------------------------------
+    // --- Send SMS via Twilio (outside transaction — external side effect) -----
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
     const portalLink = `${appUrl}/portal/${approvalToken}`;
     const smsBody =
@@ -238,13 +242,13 @@ export async function sendDiagnosticApprovalSms(
 
     await sendSMS(params.clientPhone, smsBody);
 
-    // Mirror to Supabase (best-effort).
+    // Mirror to Supabase (best-effort, outside transaction — external side effect).
     try {
       const adminDb = createAdminClient();
       await adminDb.from("work_orders").insert({
         id: workOrder.id,
         tenant_id: tenantId,
-        title,
+        title: workOrder.title,
         status: "PENDING_APPROVAL",
         is_diagnostic: true,
         diagnostic_fee_cents: params.diagnosticFeeCents,

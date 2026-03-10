@@ -84,24 +84,6 @@ export async function POST(req: NextRequest) {
       .eq("phone", from)
       .single();
 
-    // Check for opt-out keywords (Issue #138).
-    // Set opted_out_sms = true before inserting the audit message.
-    // Intentional non-atomicity: the Prisma update (opted_out_sms) and the
-    // Supabase insert (messages audit trail) use separate clients. The message
-    // insert is the audit record and should always happen. The opted_out_sms
-    // update failure is logged but does not block the audit insert.
-    const normalizedBody = body.trim().toUpperCase();
-    if (client?.id && OPT_OUT_KEYWORDS.has(normalizedBody)) {
-      try {
-        await prisma.client.update({
-          where: { id: client.id },
-          data: { opted_out_sms: true },
-        });
-      } catch (err) {
-        logger.error("Failed to set opted_out_sms", { service: "twilio", tenantId }, err);
-      }
-    }
-
     // Idempotency guard — deduplicate repeated Twilio webhook deliveries.
     // Twilio uses MessageSid as a globally unique identifier per message.
     // If we have already processed this SID, return 200 without re-inserting.
@@ -120,6 +102,24 @@ export async function POST(req: NextRequest) {
           status: 200,
           headers: { "Content-Type": "text/xml" },
         });
+      }
+    }
+
+    // Check for opt-out keywords (Issue #138).
+    // Set opted_out_sms = true before inserting the audit message.
+    // Intentional non-atomicity: the Prisma update (opted_out_sms) and the
+    // Supabase insert (messages audit trail) use separate clients. The message
+    // insert is the audit record and should always happen. The opted_out_sms
+    // update failure is logged but does not block the audit insert.
+    const normalizedBody = body.trim().toUpperCase();
+    if (client?.id && OPT_OUT_KEYWORDS.has(normalizedBody)) {
+      try {
+        await prisma.client.update({
+          where: { id: client.id },
+          data: { opted_out_sms: true },
+        });
+      } catch (err) {
+        logger.error("Failed to set opted_out_sms", { service: "twilio", tenantId }, err);
       }
     }
 
