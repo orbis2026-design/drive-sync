@@ -12,9 +12,8 @@
  */
 
 import { cache } from "react";
-import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@/lib/supabase/server";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,72 +28,19 @@ export type UserRoleRow = {
 };
 
 // ---------------------------------------------------------------------------
-// Internal: build a Supabase client that forwards the session cookie so that
-// Supabase can validate the JWT and return the authenticated user.
-// ---------------------------------------------------------------------------
-
-function createCookieClient(authToken: string) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) return null;
-
-  return createClient(url, anonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-    global: {
-      headers: {
-        Authorization: `Bearer ${authToken}`,
-      },
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
 // getSessionUserId
 //
-// Reads the Supabase auth cookie set by the browser SDK and returns the
-// authenticated user's ID. Returns null when no valid session is present.
+// Reads the Supabase session via the SSR client (which handles chunked auth
+// cookies automatically) and returns the authenticated user's ID.
+// Returns null when no valid session is present.
 // ---------------------------------------------------------------------------
 
 export const getSessionUserId = cache(async (): Promise<string | null> => {
   try {
-    const cookieStore = await cookies();
-
-    // The Supabase JS SDK stores the session under keys like
-    // "sb-<project-ref>-auth-token" (v2) or "supabase-auth-token" (legacy).
-    // We iterate all cookies and look for a parseable Supabase token.
-    let accessToken: string | null = null;
-    for (const cookie of cookieStore.getAll()) {
-      if (
-        cookie.name.startsWith("sb-") &&
-        cookie.name.endsWith("-auth-token")
-      ) {
-        try {
-          const parsed = JSON.parse(decodeURIComponent(cookie.value)) as
-            | { access_token?: string }
-            | [{ access_token?: string }];
-          const session = Array.isArray(parsed) ? parsed[0] : parsed;
-          if (session?.access_token) {
-            accessToken = session.access_token;
-            break;
-          }
-        } catch {
-          // Not a JSON cookie — skip.
-        }
-      }
-    }
-
-    if (!accessToken) return null;
-
-    const client = createCookieClient(accessToken);
-    if (!client) return null;
-
+    const client = await createServerClient();
     const {
       data: { user },
     } = await client.auth.getUser();
-
     return user?.id ?? null;
   } catch {
     return null;
