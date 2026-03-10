@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
 import { verifySession } from "@/lib/auth";
+import { renderContractPdf } from "@/lib/pdf-renderer";
+import { sendContractEmail } from "@/lib/email";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -151,6 +153,169 @@ export async function getCheckoutData(
       },
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Server Action — generateAndSendInvoice
+// ---------------------------------------------------------------------------
+
+/**
+ * Generates a simple invoice PDF and emails it to the client, then marks the
+ * work order as INVOICED. Uses the same PDF renderer as the signed contract,
+ * but without requiring a live signature (the signature block is left blank).
+ */
+export async function generateAndSendInvoice(
+  workOrderId: string,
+): Promise<{ success: true } | { error: string }> {
+  if (!workOrderId) {
+    return { error: "Missing work order ID." };
+  }
+
+  const { tenantId } = await verifySession();
+
+  try {
+    const workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
+      select: {
+        id: true,
+        status: true,
+        laborCents: true,
+        partsCents: true,
+        vehicle: {
+          select: {
+            client: {
+              select: { firstName: true, lastName: true, email: true },
+            },
+          },
+        },
+      },
+    });
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+
+    if (!workOrder || !tenant) {
+      return { error: "Work order not found." };
+    }
+
+    if (workOrder.status !== "COMPLETE" && workOrder.status !== "INVOICED") {
+      return {
+        error:
+          "Invoice can only be generated for completed jobs.",
+      };
+    }
+
+    const subtotalCents = workOrder.laborCents + workOrder.partsCents;
+    const taxCents = Math.round(subtotalCents * TAX_RATE);
+    const totalCents = subtotalCents + taxCents;
+    const totalDollars = (totalCents / 100).toFixed(2);
+
+    const clientName = `${workOrder.vehicle.client.firstName} ${workOrder.vehicle.client.lastName}`;
+    const clientEmail = workOrder.vehicle.client.email ?? undefined;
+
+    const formattedSignedAt = new Date().toLocaleString("en-US", {
+      dateStyle: "full",
+      timeStyle: "long",
+    });
+
+    // Empty transparent PNG for the signature block (optional for invoices).
+    const EMPTY_SIGNATURE =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAuMBgVYBoakAAAAASUVORK5CYII=";
+
+    const pdfBytes = renderContractPdf({
+      workOrderId: workOrder.id,
+      shopName: tenant.name,
+      clientName,
+      clientEmail: clientEmail ?? "N/A",
+      totalDollars,
+      formattedSignedAt,
+      clientIp: "Not recorded",
+      preInspectionMediaPaths: [],
+      signatureDataUrl: EMPTY_SIGNATURE,
+      generatedAt: new Date().toISOString(),
+    });
+
+    // Upload to Supabase Storage
+    const adminDb = createAdminClient();
+    const fileName = `invoices/${workOrder.id}/invoice-${Date.now()}.pdf`;
+
+    const { error: uploadError } = await adminDb.storage
+      .from("contracts")
+      .upload(fileName, pdfBytes, {
+        contentType: "application/pdf",
+        upsert: false,
+      });
+
+    if (uploadError) {
+      // Non-fatal in development where bucket may not exist.
+      console.warn("[generateAndSendInvoice] Storage upload skipped:", uploadError.message);
+    }
+
+    const { data: urlData } = adminDb.storage
+      .from("contracts")
+      .getPublicUrl(fileName);
+
+    const pdfUrl = urlData.publicUrl;
+
+    // Register WorkOrderDocument (best-effort)
+    try {
+      await prisma.workOrderDocument.create({
+        data: {
+          tenantId,
+          workOrderId: workOrder.id,
+          type: "INVOICE",
+          storageKey: fileName,
+          bucket: "contracts",
+          filename: fileName.split("/").pop() ?? "invoice.pdf",
+          metadataJson: { publicUrl: pdfUrl },
+        },
+      });
+    } catch {
+      // Non-fatal.
+    }
+
+    // Email invoice (best-effort)
+    if (clientEmail) {
+      const attachmentName = `invoice-${workOrder.id}.pdf`;
+      await sendContractEmail({
+        to: clientEmail,
+        clientName,
+        shopName: tenant.name,
+        workOrderId: workOrder.id,
+        pdfBuffer: pdfBytes,
+        pdfFileName: attachmentName,
+      });
+    }
+
+    // Transition to INVOICED if still COMPLETE.
+    if (workOrder.status === "COMPLETE") {
+      await prisma.workOrder.updateMany({
+        where: { id: workOrder.id, tenantId },
+        data: { status: "INVOICED" },
+      });
+
+      try {
+        await adminDb
+          .from("work_orders")
+          .update({ status: "INVOICED" })
+          .eq("id", workOrder.id)
+          .eq("tenant_id", tenantId);
+      } catch {
+        // Non-fatal.
+      }
+    }
+
+    revalidatePath("/jobs");
+    revalidatePath(`/work-orders/${workOrder.id}`);
+    revalidateTag("jobs", {});
+
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error.";
+    return { error: `Failed to generate invoice: ${message}` };
+  }
 }
 
 // ---------------------------------------------------------------------------

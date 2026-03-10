@@ -132,8 +132,9 @@ export async function confirmExpense(payload: {
   vendor: string;
   category: string;
   receiptImageUrl: string | null;
+  workOrderId?: string | null;
 }): Promise<{ data: ExpenseRecord } | { error: string }> {
-  const { amount, vendor, category, receiptImageUrl } = payload;
+  const { amount, vendor, category, receiptImageUrl, workOrderId } = payload;
 
   if (!amount || amount <= 0) return { error: "Amount must be greater than 0." };
   if (!vendor.trim()) return { error: "Vendor name is required." };
@@ -149,6 +150,7 @@ export async function confirmExpense(payload: {
       vendor: vendor.trim(),
       category: category.trim() || "General",
       receipt_image_url: receiptImageUrl ?? null,
+      work_order_id: workOrderId ?? null,
     })
     .select()
     .single();

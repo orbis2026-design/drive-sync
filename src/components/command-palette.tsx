@@ -230,6 +230,9 @@ export function CommandPalette({ open, onClose }: Props) {
                   { label: "Clients", href: "/clients", icon: "👥" },
                   { label: "Calendar", href: "/calendar", icon: "📅" },
                   { label: "Messages", href: "/messages", icon: "💬" },
+                  { label: "Inventory", href: "/inventory", icon: "📦" },
+                  { label: "HQ Chat", href: "/hq/chat", icon: "💬" },
+                  { label: "Expenses", href: "/expenses", icon: "🧾" },
                 ].map((item) => (
                   <Command.Item
                     key={item.href}

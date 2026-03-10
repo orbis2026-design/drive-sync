@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { sendShopMessage } from "@/app/(app)/hq/chat/actions";
 
 export async function POST(req: NextRequest) {
   let body: { workOrderId?: string } = {};
@@ -82,6 +83,14 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Database error.";
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+
+  // Best-effort: notify #dispatch channel.
+  try {
+    const label = isChangeOrder ? "change order approved by QA" : "damage waiver cleared by QA";
+    await sendShopMessage("#dispatch", `Work order ${workOrderId}: ${label}.`);
+  } catch {
+    // Non-fatal.
   }
 
   return NextResponse.json({ success: true });

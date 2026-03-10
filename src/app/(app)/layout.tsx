@@ -4,6 +4,7 @@ import { unstable_cache } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerClient } from "@/lib/supabase/server";
 import { CommandPaletteProvider } from "@/components/command-palette";
+import { LockSettingsProvider } from "@/contexts/LockSettingsContext";
 import { NavShell } from "@/components/navigation/NavShell";
 import { TopBar } from "@/components/navigation/TopBar";
 import InactivityLock from "@/components/auth/InactivityLock";
@@ -116,20 +117,22 @@ export default async function AppLayout({
   }
 
   return (
-    <CommandPaletteProvider>
-      <InactivityLock>
+    <LockSettingsProvider>
+      <CommandPaletteProvider>
+        <InactivityLock>
         <div className="h-[100dvh] w-full overflow-hidden bg-gray-950 flex">
           {/* New ARI-style desktop sidebar + mobile bottom nav (Issue #114) */}
           <NavShell role={role} />
-          <main className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col pb-20 lg:pb-0 relative bg-black">
+          <main className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col pb-20 md:pb-0 relative bg-black">
             {/* Contextual top bar (Issue #115) */}
             <TopBar />
-            <div className="flex-1 p-4 sm:p-6 lg:p-8">
+            <div className="flex-1 p-4 sm:p-6 md:p-8">
               {children}
             </div>
           </main>
         </div>
-      </InactivityLock>
-    </CommandPaletteProvider>
+        </InactivityLock>
+      </CommandPaletteProvider>
+    </LockSettingsProvider>
   );
 }

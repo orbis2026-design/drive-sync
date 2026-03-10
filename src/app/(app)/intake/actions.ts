@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decodeVinWithNhtsa } from "@/lib/api-adapters/nhtsa";
@@ -124,6 +125,7 @@ export async function decodeVin(
   const { data: inserted, error: insertError } = await adminDb
     .from("global_vehicles")
     .insert({
+      id: randomUUID(),
       year,
       make,
       model,
@@ -134,6 +136,8 @@ export async function decodeVin(
       submodel_options_json: [],
       maintenance_schedule_json: [],
       known_faults_json: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     })
     .select("id, year, make, model, engine, trim, oil_capacity_qts, oil_weight_oem, submodel_options_json, maintenance_schedule_json")
     .single();
@@ -192,6 +196,7 @@ export async function createTenantVehicle(
   const { data, error } = await adminDb
     .from("tenant_vehicles")
     .insert({
+      id: randomUUID(),
       tenant_id: tenantId,
       client_id: input.clientId,
       global_vehicle_id: input.globalVehicleId,
@@ -204,6 +209,8 @@ export async function createTenantVehicle(
       year: input.year ?? null,
       oil_type: input.oilType ?? null,
       tire_size: input.tireSize ?? null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     })
     .select("id, tenant_id, client_id, global_vehicle_id")
     .single();

@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 
@@ -113,6 +114,8 @@ export async function createClient(
       },
       select: { id: true },
     });
+    revalidateTag("clients");
+    revalidatePath("/clients");
     return { id: client.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create client.";

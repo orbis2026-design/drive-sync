@@ -134,11 +134,14 @@ function JobCardRow({
         />
       </div>
 
-      {/* Main content */}
+      {/* Main content — title links to Job Card hub */}
       <div className="flex-1 min-w-0 py-3 pr-1">
-        <p className="text-base font-black text-white leading-tight truncate">
+        <Link
+          href={`/work-orders/${job.id}`}
+          className="block font-black text-white leading-tight truncate hover:text-brand-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 rounded"
+        >
           {fullName}
-        </p>
+        </Link>
         <p className="text-sm text-gray-400 truncate mt-0.5">{vehicle}</p>
         <p className="text-xs text-gray-500 mt-1 truncate">{job.title}</p>
       </div>
@@ -153,6 +156,19 @@ function JobCardRow({
         <span className="text-xs text-gray-500">{relativeAge(job.createdAt)}</span>
         {/* Action link */}
         <div className="flex items-center gap-1.5">
+          <Link
+            href={`/work-orders/${job.id}`}
+            className={[
+              "inline-flex items-center justify-center",
+              "px-2 py-1 rounded-lg",
+              "bg-gray-700 hover:bg-gray-600 border border-gray-600",
+              "text-[11px] font-bold text-gray-300",
+              "transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400",
+            ].join(" ")}
+          >
+            Job
+          </Link>
           {advanceLabel && (
             <button
               type="button"

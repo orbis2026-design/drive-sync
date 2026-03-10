@@ -1,7 +1,8 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { computeMaintenanceBadges, type MaintenanceItem } from "@/lib/maintenance";
+import { computeMaintenanceBadges } from "@/lib/maintenance";
 import { ClientFeed, type ClientData, type VehicleData } from "./ClientFeed";
+import { ClientsPageHeader } from "./ClientsPageHeader";
 import { getTenantId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
@@ -17,86 +18,90 @@ export const metadata = {
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch clients with a 60-second edge-cache TTL so the Vercel Edge Network
- * serves this static-ish list instantly on repeat requests, while still
- * refreshing in the background via stale-while-revalidate (Issue #39).
+ * Raw fetch — cached per tenant in the page so each tenant gets the correct list.
  */
-const fetchClients = unstable_cache(
-  async (tenantId: string | undefined): Promise<ClientData[]> => {
-    try {
-      const rows = await prisma.client.findMany({
-        where: tenantId ? { tenantId } : undefined,
-        orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
-        include: {
-          vehicles: {
-            orderBy: { year: "desc" },
-            include: { globalVehicle: true },
+async function fetchClientsForTenant(tenantId: string | undefined): Promise<ClientData[]> {
+  if (!tenantId) return [];
+  try {
+    const rows = await prisma.client.findMany({
+      where: { tenantId },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        vehicles: {
+          orderBy: { year: "desc" },
+          select: {
+            id: true,
+            make: true,
+            model: true,
+            year: true,
+            vin: true,
+            plate: true,
+            color: true,
+            mileageIn: true,
+            globalVehicle: {
+              select: { maintenanceScheduleJson: true },
+            },
           },
         },
-      });
+      },
+    });
 
-      return rows.map((client: (typeof rows)[number]): ClientData => ({
-        id: client.id,
-        firstName: client.firstName,
-        lastName: client.lastName,
-        email: client.email,
-        phone: client.phone,
-        vehicles: client.vehicles.map((v: (typeof client.vehicles)[number]): VehicleData => {
-          // Pre-compute maintenance badges server-side so the initial render is
-          // fully populated — no extra client round-trip on first expand.
-          const schedule =
-            v.globalVehicle && v.mileageIn != null
-              ? (v.globalVehicle.maintenanceScheduleJson as MaintenanceItem[])
-              : [];
-
-          const maintenanceBadges =
-            v.mileageIn != null
-              ? computeMaintenanceBadges(v.mileageIn, schedule)
-              : [];
-
-          return {
-            id: v.id,
-            make: v.make ?? "",
-            model: v.model ?? "",
-            year: v.year ?? 0,
-            vin: v.vin,
-            plate: v.plate,
-            color: v.color,
-            mileageIn: v.mileageIn,
-            maintenanceBadges,
-          };
-        }),
-      }));
-    } catch {
-      // Database not yet available (e.g. during initial setup without
-      // a provisioned DATABASE_URL). Return an empty list so the page
-      // still renders cleanly.
-      return [];
-    }
-  },
-  ["clients-list"],
-  { revalidate: 60, tags: ["clients"] },
-);
+    return rows.map((client: (typeof rows)[number]): ClientData => ({
+      id: client.id,
+      firstName: client.firstName,
+      lastName: client.lastName,
+      email: client.email,
+      phone: client.phone,
+      vehicles: client.vehicles.map((v: (typeof client.vehicles)[number]): VehicleData => {
+        const schedule =
+          v.globalVehicle && v.mileageIn != null
+            ? (v.globalVehicle.maintenanceScheduleJson as Array<{
+                service: string;
+                intervalMiles?: number;
+                atMileage?: number;
+              }>)
+            : [];
+        const maintenanceBadges =
+          v.mileageIn != null
+            ? computeMaintenanceBadges(v.mileageIn, schedule)
+            : [];
+        return {
+          id: v.id,
+          make: v.make ?? "",
+          model: v.model ?? "",
+          year: v.year ?? 0,
+          vin: v.vin,
+          plate: v.plate,
+          color: v.color,
+          mileageIn: v.mileageIn,
+          maintenanceBadges,
+        };
+      }),
+    }));
+  } catch {
+    return [];
+  }
+}
 
 // ---------------------------------------------------------------------------
-// Page component
+// Page component — per-tenant cache key so list is correct for logged-in tenant
 // ---------------------------------------------------------------------------
 export default async function ClientsPage() {
   const tenantId = await getTenantId();
-  const clients = await fetchClients(tenantId ?? undefined);
+  const clients = await unstable_cache(
+    () => fetchClientsForTenant(tenantId ?? undefined),
+    ["clients-list", tenantId ?? ""],
+    { revalidate: 60, tags: ["clients"] },
+  )();
 
   return (
     <div className="flex flex-col min-h-full">
-      {/* Page header */}
-      <header className="px-4 pt-6 pb-2">
-        <h1 className="text-4xl font-black text-white tracking-tight">
-          Clients
-        </h1>
-        <p className="text-base text-gray-400 mt-1">
-          Tap a card to see vehicles &amp; maintenance alerts.
-        </p>
-      </header>
-
+      <ClientsPageHeader />
       {/* Interactive feed — client component handles search + expand */}
       <ClientFeed clients={clients} />
 

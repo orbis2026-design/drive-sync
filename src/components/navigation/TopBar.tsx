@@ -15,15 +15,21 @@ import { UserNav } from "./UserNav";
 // ---------------------------------------------------------------------------
 
 const ROUTE_TITLES: Record<string, string> = {
-  "/analytics":  "Financials",
-  "/jobs":       "Active Jobs",
-  "/calendar":   "Calendar",
-  "/intake":     "Vehicle Intake",
-  "/clients":    "Clients",
-  "/settings":   "Settings",
-  "/inventory":  "Inventory Management",
-  "/marketing":  "Retention Engine",
-  "/accounting": "Accounting",
+  "/analytics":     "Financials",
+  "/jobs":          "Active Jobs",
+  "/calendar":      "Calendar",
+  "/intake":        "Vehicle Intake",
+  "/clients":       "Clients",
+  "/settings":      "Settings",
+  "/inventory":     "Inventory Management",
+  "/marketing":     "Retention Engine",
+  "/accounting":    "Accounting",
+  "/dispatch/qa":   "QA Inbox",
+  "/fleet/billing": "Fleet Billing",
+  "/parts/catalog": "Nexpart PO",
+  "/messages":      "Messages",
+  "/hq/chat":       "HQ Chat",
+  "/expenses":      "Expenses",
 };
 
 function getPageTitle(pathname: string): string {
@@ -52,10 +58,10 @@ export function TopBar() {
       </h1>
 
       {/* Middle — Global search (desktop only) */}
-      <div className="hidden lg:flex flex-1 justify-center">
+      <div className="hidden md:flex flex-1 justify-center">
         <button
           type="button"
-          className="bg-gray-900 border border-gray-800 text-sm rounded-lg px-4 py-1.5 w-64 lg:w-96 text-gray-400 flex items-center gap-2 cursor-pointer hover:border-gray-700 transition-colors"
+          className="bg-gray-900 border border-gray-800 text-sm rounded-lg px-4 py-1.5 w-64 md:w-96 text-gray-400 flex items-center gap-2 cursor-pointer hover:border-gray-700 transition-colors"
           aria-label="Open command palette to search jobs, clients, and more"
         >
           {/* Search icon */}
@@ -110,7 +116,7 @@ export function TopBar() {
         {/* "+ New Quote" quick-action — desktop only */}
         <Link
           href="/intake"
-          className="hidden lg:inline-flex items-center gap-2 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-gray-900 text-sm font-bold px-4 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
+          className="hidden md:inline-flex items-center gap-2 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-gray-900 text-sm font-bold px-4 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
         >
           <span aria-hidden="true">+</span>
           New Quote

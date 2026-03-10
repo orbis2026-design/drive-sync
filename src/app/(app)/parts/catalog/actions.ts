@@ -36,25 +36,31 @@ export async function fetchActiveWorkOrders(): Promise<
         id: true,
         title: true,
         status: true,
-        vehicle: {
-          select: { year: true, make: true, model: true, vin: true },
-        },
+        vehicleId: true,
       },
     });
 
-    const data: ActiveWorkOrderSummary[] = rows.map(
-      (row: (typeof rows)[number]) => ({
+    const vehicleIds = rows.map((row) => row.vehicleId);
+    const vehicles = await prisma.vehicle.findMany({
+      where: { id: { in: vehicleIds } },
+      select: { id: true, year: true, make: true, model: true, vin: true },
+    });
+    const vehicleById = new Map(vehicles.map((v) => [v.id, v]));
+
+    const data: ActiveWorkOrderSummary[] = rows.map((row) => {
+      const v = vehicleById.get(row.vehicleId);
+      return {
         id: row.id,
         title: row.title,
         status: row.status,
         vehicle: {
-          year: row.vehicle.year ?? 0,
-          make: row.vehicle.make ?? "",
-          model: row.vehicle.model ?? "",
-          vin: row.vehicle.vin ?? null,
+          year: v?.year ?? 0,
+          make: v?.make ?? "",
+          model: v?.model ?? "",
+          vin: v?.vin ?? null,
         },
-      }),
-    );
+      };
+    });
 
     return { data };
   } catch (err) {

@@ -50,7 +50,7 @@ const FEATURES: Feature[] = [
 
 export function FeatureGrid() {
   return (
-    <section className="bg-gray-950 px-4 py-20">
+    <section id="features" className="bg-gray-950 px-4 py-20">
       <div className="mx-auto max-w-5xl">
         {/* Section header */}
         <div className="mb-12 text-center">

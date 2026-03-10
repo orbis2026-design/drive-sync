@@ -4,12 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import {
   computeMaintenanceBadges,
-  type MaintenanceItem,
   type MaintenanceBadge,
 } from "@/lib/maintenance";
-
-// Re-export types so client components can import them from a single place.
-export type { MaintenanceItem, MaintenanceBadge };
 
 // ---------------------------------------------------------------------------
 // Server Action — on-demand maintenance check for a single vehicle.
@@ -35,7 +31,7 @@ export async function checkMaintenanceDue(
     }
 
     const schedule = vehicle.globalVehicle
-      .maintenanceScheduleJson as MaintenanceItem[];
+      .maintenanceScheduleJson as Array<{ service: string; intervalMiles?: number; atMileage?: number }>;
 
     return computeMaintenanceBadges(vehicle.mileageIn, schedule);
   } catch (err) {

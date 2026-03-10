@@ -3,7 +3,7 @@
 /**
  * Sidebar.tsx — ARI-style desktop sidebar navigation (Issue #114)
  *
- * Visible only on lg: breakpoint and above (hidden on mobile).
+ * Visible from md: (768px) and above so desktop layout is consistent.
  * Accepts `role` and `tabs` props for role-based rendering.
  */
 
@@ -65,7 +65,7 @@ export function Sidebar({ role, tabs }: SidebarProps) {
   return (
     <aside
       aria-label="Desktop sidebar navigation"
-      className="hidden lg:flex lg:flex-col w-64 bg-gray-900 border-r border-gray-800 h-screen sticky top-0 overflow-y-auto"
+      className="hidden md:flex md:flex-col w-64 bg-gray-900 border-r border-gray-800 h-screen sticky top-0 overflow-y-auto"
     >
       {/* Brand */}
       <div className="flex items-center justify-between px-5 h-16 border-b border-gray-800 flex-shrink-0">

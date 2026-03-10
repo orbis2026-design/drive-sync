@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { MarketingHeader } from "@/components/marketing/MarketingHeader";
 import { HeroSection } from "@/components/marketing/HeroSection";
 import { FeatureGrid } from "@/components/marketing/FeatureGrid";
 import { PricingTable } from "@/components/marketing/PricingTable";
@@ -14,6 +15,7 @@ export const metadata: Metadata = {
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-gray-950">
+      <MarketingHeader />
       <HeroSection />
       <FeatureGrid />
 
@@ -28,7 +30,7 @@ export default function HomePage() {
               Feature Hubs
             </h2>
             <p className="mt-2 text-sm text-gray-500">
-              Everything you need to know about each DriveSync capability.
+              Everything you need to know about each DriveSync capability — built for the field.
             </p>
           </div>
 
@@ -56,10 +58,11 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="border-t border-gray-800 bg-gray-950 px-4 py-10 text-center text-xs text-gray-600">
-        <p className="mb-1 font-bold text-gray-500">
+        <p className="mb-1 text-lg font-black tracking-tight text-white">
           Drive<span className="text-red-500">Sync</span>
         </p>
-        <p>© {new Date().getFullYear()} DriveSync · All rights reserved</p>
+        <p className="mb-1 text-gray-500">Wrench More. Type Less.</p>
+        <p className="mt-2">© {new Date().getFullYear()} DriveSync · All rights reserved</p>
         <p className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1">
           <a href="/auth/login" className="underline hover:text-gray-400">
             Sign in

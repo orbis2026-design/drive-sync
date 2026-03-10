@@ -53,36 +53,10 @@ function CalendarIcon({ className }: { className?: string }) {
   );
 }
 
-function ScanIcon({ className }: { className?: string }) {
-  return (
-    <Icon className={className}>
-      <path d="M3 7V5a2 2 0 0 1 2-2h2" />
-      <path d="M17 3h2a2 2 0 0 1 2 2v2" />
-      <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
-      <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
-      <line x1="7" y1="8" x2="7" y2="16" />
-      <line x1="10" y1="8" x2="10" y2="16" />
-      <line x1="12" y1="8" x2="12" y2="16" strokeWidth={3} />
-      <line x1="15" y1="8" x2="15" y2="16" />
-      <line x1="17" y1="8" x2="17" y2="16" />
-    </Icon>
-  );
-}
-
 function WrenchIcon({ className }: { className?: string }) {
   return (
     <Icon className={className}>
       <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-    </Icon>
-  );
-}
-
-function SyncIcon({ className }: { className?: string }) {
-  return (
-    <Icon className={className}>
-      <polyline points="23 4 23 10 17 10" />
-      <polyline points="1 20 1 14 7 14" />
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
     </Icon>
   );
 }
@@ -176,6 +150,42 @@ function RetentionIcon({ className }: { className?: string }) {
   );
 }
 
+function InventoryIcon({ className }: { className?: string }) {
+  return (
+    <Icon className={className}>
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+      <line x1="12" y1="22.08" x2="12" y2="12" />
+    </Icon>
+  );
+}
+
+function MessagesIcon({ className }: { className?: string }) {
+  return (
+    <Icon className={className}>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </Icon>
+  );
+}
+
+function HqChatIcon({ className }: { className?: string }) {
+  return (
+    <Icon className={className}>
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </Icon>
+  );
+}
+
+function ExpensesIcon({ className }: { className?: string }) {
+  return (
+    <Icon className={className}>
+      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+      <line x1="1" y1="10" x2="23" y2="10" />
+      <path d="M7 15h.01M12 15h3" />
+    </Icon>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Tab definitions
 // ---------------------------------------------------------------------------
@@ -189,11 +199,9 @@ interface NavTab {
 }
 
 const FIELD_TECH_TABS: NavTab[] = [
-  { href: "/calendar", label: "Calendar",    icon: CalendarIcon },
-  { href: "/scan",     label: "Scan VIN",    icon: ScanIcon     },
-  { href: "/jobs",     label: "Active Job",  icon: WrenchIcon   },
-  { href: "/sync",     label: "Offline Sync",icon: SyncIcon     },
-  { href: "/settings", label: "Settings",   icon: SettingsIcon },
+  { href: "/calendar", label: "Calendar",   icon: CalendarIcon },
+  { href: "/jobs",     label: "Active Job", icon: WrenchIcon   },
+  { href: "/settings", label: "Settings",    icon: SettingsIcon  },
 ];
 
 const SHOP_OWNER_TABS: NavTab[] = [
@@ -203,6 +211,10 @@ const SHOP_OWNER_TABS: NavTab[] = [
   { href: "/fleet/billing", label: "Fleet Billing", icon: FleetIcon,    featureKey: "fleet", hideOnMobile: true },
   { href: "/parts/catalog", label: "Nexpart PO",    icon: ReceiptIcon,                         },
   { href: "/analytics",     label: "Financials",    icon: AnalyticsIcon,                       },
+  { href: "/inventory",     label: "Inventory",     icon: InventoryIcon, hideOnMobile: true     },
+  { href: "/messages",      label: "Messages",      icon: MessagesIcon, hideOnMobile: true     },
+  { href: "/hq/chat",       label: "HQ Chat",       icon: HqChatIcon,   hideOnMobile: true     },
+  { href: "/expenses",      label: "Expenses",      icon: ExpensesIcon, hideOnMobile: true     },
   { href: "/marketing",     label: "Retention",     icon: RetentionIcon, hideOnMobile: true    },
   { href: "/accounting",    label: "Stripe Payouts",icon: DollarIcon,   hideOnMobile: true     },
   { href: "/settings",      label: "Settings",      icon: SettingsIcon,                        },

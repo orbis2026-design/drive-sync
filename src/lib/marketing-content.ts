@@ -14,7 +14,7 @@ export type FeaturePage = {
 export const FEATURE_PAGES: FeaturePage[] = [
   {
     slug: "auto-repair-invoices",
-    title: "Auto Repair Invoice Software",
+    title: "Invoices",
     metaTitle: "Auto Repair Invoice Software for Mobile Mechanics | DriveSync",
     metaDescription:
       "Generate professional, state-compliant auto repair invoices in seconds. DriveSync beats ARI on mobile speed, Stripe payments, and zero per-transaction fees.",
@@ -49,7 +49,7 @@ export const FEATURE_PAGES: FeaturePage[] = [
   },
   {
     slug: "vehicle-inspections",
-    title: "Digital Vehicle Inspection Software",
+    title: "Inspections",
     metaTitle:
       "Digital Vehicle Inspection Software for Mobile Mechanics | DriveSync",
     metaDescription:
@@ -85,7 +85,7 @@ export const FEATURE_PAGES: FeaturePage[] = [
   },
   {
     slug: "job-cards",
-    title: "Digital Job Card Software for Mobile Mechanics",
+    title: "Job Cards",
     metaTitle: "Digital Job Cards for Mobile Mechanics | DriveSync",
     metaDescription:
       "Replace paper job cards with digital work orders that track labor, parts, status, and customer approvals — synced across your whole team in real time.",
@@ -120,7 +120,7 @@ export const FEATURE_PAGES: FeaturePage[] = [
   },
   {
     slug: "inventory-management",
-    title: "Van Stock & Inventory Management for Mobile Mechanics",
+    title: "Inventory",
     metaTitle: "Van Stock Inventory Management for Mobile Mechanics | DriveSync",
     metaDescription:
       "Track oil, filters, and consumables in your van with automatic stock deduction when a job is paid. Never run out of 5W-30 mid-job again.",
@@ -155,7 +155,7 @@ export const FEATURE_PAGES: FeaturePage[] = [
   },
   {
     slug: "service-reminders",
-    title: "Automated Service Reminder Software for Auto Repair",
+    title: "Reminders",
     metaTitle: "Automated Service Reminders for Mobile Mechanics | DriveSync",
     metaDescription:
       "Send automated oil change and service reminders to past customers via SMS. DriveSync's AI-powered campaigns bring back 30% more repeat business.",

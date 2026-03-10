@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -161,6 +162,8 @@ export async function submitIntakeRequest(
       // Non-fatal.
     }
 
+    revalidateTag("clients");
+    revalidatePath("/clients");
     return { success: true, workOrderId: workOrder.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Submission failed.";

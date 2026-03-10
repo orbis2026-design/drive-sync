@@ -238,6 +238,7 @@ create table if not exists clients (
   zip_code            text,
   is_commercial_fleet boolean     not null default false,
   client_user_id      uuid        references auth.users(id),
+  opted_out_sms       boolean     not null default false,
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now()
 );
@@ -573,6 +574,28 @@ create trigger trg_warranties_updated_at
   for each row execute function set_updated_at();
 
 -- ---------------------------------------------------------------------------
+-- 12. work_order_documents  (contract / inspection / invoice PDFs per job)
+-- ---------------------------------------------------------------------------
+
+create table if not exists work_order_documents (
+  id            uuid        not null default gen_random_uuid() primary key,
+  tenant_id     uuid        not null references tenants(id) on delete cascade,
+  work_order_id uuid        not null references work_orders(id) on delete cascade,
+  type          text        not null,
+  storage_key   text        not null,
+  bucket        text        not null default 'contracts',
+  filename      text        not null,
+  metadata_json jsonb,
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists work_order_documents_tenant_id_idx
+  on work_order_documents (tenant_id, created_at desc);
+
+create index if not exists work_order_documents_work_order_id_idx
+  on work_order_documents (work_order_id, created_at desc);
+
+-- ---------------------------------------------------------------------------
 -- 12. outbound_campaigns  (SMS retention send queue)
 -- ---------------------------------------------------------------------------
 
@@ -611,7 +634,37 @@ create trigger trg_outbound_campaigns_updated_at
   for each row execute function set_updated_at();
 
 -- ---------------------------------------------------------------------------
--- 13. mechanic_settings  (per-mechanic billing preferences)
+-- 13. work_order_events  (job timeline events)
+-- ---------------------------------------------------------------------------
+
+create table if not exists work_order_events (
+  id            uuid                not null default gen_random_uuid() primary key,
+  tenant_id     uuid                not null references tenants(id) on delete cascade,
+  work_order_id uuid                not null references work_orders(id) on delete cascade,
+  scope         text                not null,
+  stage         work_order_status   not null,
+  kind          text                not null,
+  title         text                not null,
+  body          text,
+  metadata_json jsonb,
+  author_user_id uuid               references auth.users(id) on delete set null,
+  created_at    timestamptz         not null default now()
+);
+
+create index if not exists work_order_events_tenant_id_idx
+  on work_order_events (tenant_id, work_order_id, created_at desc);
+
+alter table work_order_events enable row level security;
+
+drop policy if exists "work_order_events_tenant_isolation" on work_order_events;
+
+create policy "work_order_events_tenant_isolation"
+  on work_order_events for all
+  using (tenant_id = current_tenant_id())
+  with check (tenant_id = current_tenant_id());
+
+-- ---------------------------------------------------------------------------
+-- 14. mechanic_settings  (per-mechanic billing preferences)
 -- ---------------------------------------------------------------------------
 
 create table if not exists mechanic_settings (

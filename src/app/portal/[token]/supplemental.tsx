@@ -13,6 +13,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import SignatureCanvas from "react-signature-canvas";
+import { approveChangeOrder } from "./actions";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -109,21 +110,11 @@ export function SupplementalChangeOrder({
 
     startTransition(async () => {
       try {
-        // In production this would call a dedicated server action:
-        //   await approveChangeOrder(workOrderId, deltaApprovalToken, dataUrl);
-        // For now, persist via the sync endpoint as a status note.
-        const res = await fetch(`/api/sync`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            workOrderId,
-            patch: {
-              notes: `[CHANGE ORDER APPROVED] Signature: ${dataUrl.substring(0, 50)}…`,
-            },
-          }),
-        });
-
-        void res;
+        const result = await approveChangeOrder(workOrderId, approvalToken, dataUrl);
+        if ("error" in result) {
+          setError(result.error);
+          return;
+        }
         setApproved(true);
         onApproved?.();
       } catch {

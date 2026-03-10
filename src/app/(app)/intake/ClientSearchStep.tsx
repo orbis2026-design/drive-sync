@@ -44,8 +44,7 @@ function NewClientForm({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function handleSubmit() {
     setError(null);
     startTransition(async () => {
       const result = await createClient({
@@ -72,7 +71,7 @@ function NewClientForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 pt-2">
+    <div className="space-y-3 pt-2">
       <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">
         New Client
       </p>
@@ -158,14 +157,15 @@ function NewClientForm({
           Cancel
         </button>
         <button
-          type="submit"
+          type="button"
+          onClick={handleSubmit}
           disabled={isPending}
           className="flex-1 py-2.5 rounded-xl bg-brand-400 text-gray-950 text-sm font-bold hover:bg-brand-300 active:scale-[0.98] disabled:opacity-50 transition-all"
         >
           {isPending ? "Creating…" : "Create Client"}
         </button>
       </div>
-    </form>
+    </div>
   );
 }
 

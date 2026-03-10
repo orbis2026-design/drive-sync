@@ -312,3 +312,183 @@ export async function approveQuote(
   revalidatePath("/jobs");
   return { success: true };
 }
+
+// ---------------------------------------------------------------------------
+// getSupplementalPortalData — for change-order portal (deltaApprovalToken)
+// ---------------------------------------------------------------------------
+
+export interface SupplementalPortalData {
+  workOrderId: string;
+  approvalToken: string;
+  originalContract: {
+    title: string;
+    laborCents: number;
+    partsCents: number;
+    taxCents: number;
+    totalCents: number;
+    signedAt?: string;
+  };
+  deltaParts: Array<{
+    id: string;
+    name: string;
+    partNumber: string;
+    retailPriceCents: number;
+    quantity: number;
+  }>;
+  deltaLaborCents: number;
+}
+
+/**
+ * Looks up work order by deltaApprovalToken (change-order link).
+ * Returns data needed to render SupplementalChangeOrder.
+ */
+export async function getSupplementalPortalData(
+  token: string,
+): Promise<{ data: SupplementalPortalData } | { error: string }> {
+  if (!token) return { error: "Invalid or expired link." };
+
+  try {
+    const workOrder = await prisma.workOrder.findUnique({
+      where: { deltaApprovalToken: token, status: "BLOCKED_WAITING_APPROVAL" },
+      select: {
+        id: true,
+        title: true,
+        laborCents: true,
+        partsCents: true,
+        deltaPartsJson: true,
+        vehicle: {
+          select: { client: { select: { firstName: true, lastName: true } } },
+        },
+      },
+    });
+
+    if (!workOrder) return { error: "Invalid or expired change-order link." };
+
+    const laborCents = workOrder.laborCents;
+    const partsCents = workOrder.partsCents;
+    const subtotalCents = laborCents + partsCents;
+    const taxCents = Math.round(subtotalCents * TAX_RATE);
+    const totalCents = subtotalCents + taxCents;
+
+    const rawDelta = workOrder.deltaPartsJson as
+      | { parts?: Array<{ partId?: string; name: string; partNumber: string; retailPriceCents: number; quantity: number }>; laborAdditions?: Array<{ hours: number; rateCents: number }> }
+      | null
+      | unknown;
+    const partsArray = rawDelta && typeof rawDelta === "object" && Array.isArray((rawDelta as { parts?: unknown }).parts)
+      ? (rawDelta as { parts: Array<{ partId?: string; name: string; partNumber: string; retailPriceCents: number; quantity: number }> }).parts
+      : Array.isArray(workOrder.deltaPartsJson)
+        ? (workOrder.deltaPartsJson as Array<{ partId?: string; name: string; partNumber: string; retailPriceCents: number; quantity: number }>)
+        : [];
+    const deltaParts = partsArray.map((p, i) => ({
+      id: p.partId ?? `p-${i}`,
+      name: p.name ?? "",
+      partNumber: p.partNumber ?? "",
+      retailPriceCents: p.retailPriceCents ?? 0,
+      quantity: p.quantity ?? 1,
+    }));
+    const laborAdditions = rawDelta && typeof rawDelta === "object" && Array.isArray((rawDelta as { laborAdditions?: unknown }).laborAdditions)
+      ? (rawDelta as { laborAdditions: Array<{ hours: number; rateCents: number }> }).laborAdditions
+      : [];
+    const deltaLaborCents = Math.round(
+      laborAdditions.reduce((s, a) => s + a.hours * a.rateCents, 0),
+    );
+
+    return {
+      data: {
+        workOrderId: workOrder.id,
+        approvalToken: token,
+        originalContract: {
+          title: workOrder.title,
+          laborCents,
+          partsCents,
+          taxCents,
+          totalCents,
+        },
+        deltaParts,
+        deltaLaborCents,
+      },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to load change order.";
+    return { error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// approveChangeOrder — record client signature and unblock work order
+// ---------------------------------------------------------------------------
+
+/**
+ * Validates deltaApprovalToken and BLOCKED_WAITING_APPROVAL status,
+ * uploads signature to Supabase Storage, sets status to PENDING_APPROVAL,
+ * and clears deltaApprovalToken.
+ */
+export async function approveChangeOrder(
+  workOrderId: string,
+  deltaApprovalToken: string,
+  signatureDataUrl: string,
+): Promise<{ success: true } | { error: string }> {
+  if (
+    !signatureDataUrl ||
+    !signatureDataUrl.startsWith("data:image/png;base64,")
+  ) {
+    return { error: "A valid signature is required." };
+  }
+
+  try {
+    const workOrder = await prisma.workOrder.findFirst({
+      where: {
+        id: workOrderId,
+        deltaApprovalToken,
+        status: "BLOCKED_WAITING_APPROVAL",
+      },
+      select: { id: true },
+    });
+
+    if (!workOrder) {
+      return { error: "Invalid or expired change-order link." };
+    }
+
+    const base64Data = signatureDataUrl.replace(/^data:image\/png;base64,/, "");
+    const buffer = Buffer.from(base64Data, "base64");
+    const filePath = `${workOrderId}/change-order-signature.png`;
+
+    try {
+      const adminDb = createAdminClient();
+      await adminDb.storage.from("signatures").upload(filePath, buffer, {
+        contentType: "image/png",
+        upsert: true,
+      });
+    } catch {
+      // Non-fatal.
+    }
+
+    await prisma.workOrder.update({
+      where: { id: workOrderId },
+      data: {
+        status: "PENDING_APPROVAL",
+        deltaApprovalToken: null,
+      },
+    });
+
+    try {
+      const adminDb = createAdminClient();
+      await adminDb
+        .from("work_orders")
+        .update({
+          status: "PENDING_APPROVAL",
+          delta_approval_token: null,
+        })
+        .eq("id", workOrderId);
+    } catch {
+      // Non-fatal.
+    }
+
+    revalidatePath("/jobs");
+    revalidatePath(`/work-orders/${workOrderId}`);
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to record approval.";
+    return { error: message };
+  }
+}

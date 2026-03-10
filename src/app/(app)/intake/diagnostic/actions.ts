@@ -4,6 +4,7 @@
  * actions.ts — Diagnostic-Only Intake Server Actions (Issue #53)
  */
 
+import { revalidatePath, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifySession } from "@/lib/auth";
@@ -116,6 +117,8 @@ export async function createDiagnosticWorkOrder(
       // Non-fatal.
     }
 
+    revalidateTag("clients");
+    revalidatePath("/clients");
     return { workOrderId: workOrder.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Database error.";
@@ -256,6 +259,8 @@ export async function sendDiagnosticApprovalSms(
       // Non-fatal.
     }
 
+    revalidateTag("clients");
+    revalidatePath("/clients");
     return { ok: true, approvalToken, workOrderId: workOrder.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to send SMS.";

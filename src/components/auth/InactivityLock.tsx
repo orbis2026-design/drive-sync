@@ -4,8 +4,8 @@
  * InactivityLock (Issue #101)
  *
  * Wraps the mechanic app with an automatic security lock screen that activates
- * when the app has been idle for 15 minutes, or when the browser/PWA is
- * minimised and then brought back into focus.
+ * when the app has been idle for 45 minutes, or after the tab/PWA has been
+ * in the background for 5 minutes (quick tab switches do not lock immediately).
  *
  * Once locked, the overlay is un-dismissible by touch alone — the user must
  * verify physical presence via the WebAuthn (FaceID / TouchID) API before the
@@ -19,9 +19,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getBrowserClient } from "@/lib/supabase/browser";
-
-/** Idle timeout in milliseconds (15 minutes). */
-const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+import { useLockSettings } from "@/contexts/LockSettingsContext";
 
 /** Activity events that reset the idle timer. */
 const ACTIVITY_EVENTS: (keyof WindowEventMap)[] = [
@@ -172,6 +170,8 @@ export default function InactivityLock({
   const [passwordError, setPasswordError] = useState("");
   const [passwordUnlocking, setPasswordUnlocking] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hiddenLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { idleTimeoutMs, hiddenLockDelayMs } = useLockSettings();
 
   // Detect WebAuthn support and fetch the current user's email on mount.
   useEffect(() => {
@@ -182,11 +182,11 @@ export default function InactivityLock({
     });
   }, []);
 
-  // Start / reset the idle countdown.
+  // Start / reset the idle countdown (uses current configurable timeout).
   const resetTimer = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setLocked(true), IDLE_TIMEOUT_MS);
-  }, []);
+    timerRef.current = setTimeout(() => setLocked(true), idleTimeoutMs);
+  }, [idleTimeoutMs]);
 
   // Wire up activity listeners and the visibilitychange handler.
   useEffect(() => {
@@ -197,14 +197,19 @@ export default function InactivityLock({
       if (!locked) resetTimer();
     };
 
-    // Lock when the user switches away from the tab / minimises the PWA.
+    // When tab/window goes to background: start a delay before locking (generous for quick tab switches).
+    // When tab/window comes back: cancel that delay so we only lock if they were away long enough.
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        // Lock immediately on minimize / background.
         if (timerRef.current) clearTimeout(timerRef.current);
-        setLocked(true);
+        if (hiddenLockTimerRef.current) clearTimeout(hiddenLockTimerRef.current);
+        hiddenLockTimerRef.current = setTimeout(() => setLocked(true), hiddenLockDelayMs);
       } else {
-        // Returning to foreground — keep locked; user must unlock.
+        if (hiddenLockTimerRef.current) {
+          clearTimeout(hiddenLockTimerRef.current);
+          hiddenLockTimerRef.current = null;
+        }
+        // Idle timer is reset on next activity; if already locked, user must unlock.
       }
     };
 
@@ -215,10 +220,11 @@ export default function InactivityLock({
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (hiddenLockTimerRef.current) clearTimeout(hiddenLockTimerRef.current);
       ACTIVITY_EVENTS.forEach((ev) => window.removeEventListener(ev, onActivity));
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [locked, resetTimer]);
+  }, [locked, resetTimer, idleTimeoutMs, hiddenLockDelayMs]);
 
   // Biometric unlock flow.
   const handleUnlock = useCallback(async () => {

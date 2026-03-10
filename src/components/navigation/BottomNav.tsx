@@ -3,7 +3,7 @@
 /**
  * BottomNav.tsx — Mobile bottom navigation (Issue #114)
  *
- * Fixed to the bottom of the viewport, shown only on mobile (lg:hidden).
+ * Fixed to the bottom of the viewport, hidden from md: (768px) up so desktop shows sidebar.
  * Includes safe-area-inset padding for notched phones.
  */
 
@@ -34,7 +34,7 @@ export function BottomNav({ tabs }: BottomNavProps) {
   return (
     <nav
       aria-label="Mobile bottom navigation"
-      className="fixed bottom-0 left-0 right-0 z-50 lg:hidden bg-gray-900 border-t border-gray-700 pb-[env(safe-area-inset-bottom)]"
+      className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-gray-900 border-t border-gray-700 pb-[env(safe-area-inset-bottom)]"
     >
       <ul className="flex flex-row" role="list">
         {tabs.map((tab) => {

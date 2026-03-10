@@ -3,6 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
 import { sendSMS } from "@/lib/twilio";
+import { sendShopMessage } from "@/app/(app)/hq/chat/actions";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { verifySession } from "@/lib/auth";
 import { TAX_RATE, DEFAULT_SHOP_RATE_CENTS } from "./constants";
@@ -564,6 +565,16 @@ export async function sendQuote(
   const smsResult = await sendSMS(workOrder.vehicle.client.phone, smsBody);
   if (!smsResult.success) {
     console.error("[sendQuote] SMS delivery failed:", smsResult.error);
+  }
+
+  // Post to #dispatch channel (best-effort).
+  try {
+    await sendShopMessage(
+      "#dispatch",
+      `Quote sent for work order "${workOrder.title}". Awaiting client approval.`,
+    );
+  } catch {
+    // Non-fatal.
   }
 
   revalidatePath("/jobs");

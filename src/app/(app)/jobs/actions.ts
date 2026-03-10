@@ -39,12 +39,22 @@ export type JobCard = {
   vehicle: { make: string; model: string; year: number };
 };
 
+/** Requested work order (customer-submitted; awaiting accept/decline). */
+export type RequestedJobCard = {
+  id: string;
+  title: string;
+  createdAt: string;
+  client: { firstName: string; lastName: string };
+  vehicle: { make: string; model: string; year: number };
+};
+
 // ---------------------------------------------------------------------------
 // getCachedActiveJobs — unstable_cache wrapper for the Prisma query
 // ---------------------------------------------------------------------------
 
 const getCachedActiveJobs = unstable_cache(
   async (tenantId: string): Promise<JobCard[]> => {
+    // First load work orders (no relations to avoid Prisma schema mismatch).
     const rows = await prisma.workOrder.findMany({
       where: {
         tenantId,
@@ -58,16 +68,29 @@ const getCachedActiveJobs = unstable_cache(
         laborCents: true,
         partsCents: true,
         createdAt: true,
-        vehicle: {
-          select: {
-            make: true,
-            model: true,
-            year: true,
-            client: { select: { firstName: true, lastName: true } },
-          },
-        },
+        vehicleId: true,
       },
     });
+
+    const vehicleIds = rows.map((row) => row.vehicleId);
+    const vehicles = await prisma.vehicle.findMany({
+      where: { id: { in: vehicleIds } },
+      select: {
+        id: true,
+        make: true,
+        model: true,
+        year: true,
+        clientId: true,
+      },
+    });
+    const vehicleById = new Map(vehicles.map((v) => [v.id, v]));
+
+    const clientIds = vehicles.map((v) => v.clientId);
+    const clients = await prisma.client.findMany({
+      where: { id: { in: clientIds } },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    const clientById = new Map(clients.map((c) => [c.id, c]));
 
     return rows.map((row: (typeof rows)[number]) => {
       const hasQuote = row.laborCents > 0 || row.partsCents > 0;
@@ -75,6 +98,9 @@ const getCachedActiveJobs = unstable_cache(
       const totalCents = hasQuote
         ? Math.round(subtotal * (1 + TAX_RATE))
         : null;
+
+      const v = vehicleById.get(row.vehicleId);
+      const c = v ? clientById.get(v.clientId) : null;
 
       return {
         id: row.id,
@@ -85,13 +111,13 @@ const getCachedActiveJobs = unstable_cache(
         totalCents,
         createdAt: row.createdAt.toISOString(),
         client: {
-          firstName: row.vehicle.client.firstName,
-          lastName: row.vehicle.client.lastName,
+          firstName: c?.firstName ?? "",
+          lastName: c?.lastName ?? "",
         },
         vehicle: {
-          make: row.vehicle.make ?? "",
-          model: row.vehicle.model ?? "",
-          year: row.vehicle.year ?? 0,
+          make: v?.make ?? "",
+          model: v?.model ?? "",
+          year: v?.year ?? 0,
         },
       };
     });
@@ -99,6 +125,83 @@ const getCachedActiveJobs = unstable_cache(
   ["active-jobs"],
   { revalidate: 30, tags: ["jobs"] },
 );
+
+// ---------------------------------------------------------------------------
+// getRequestedJobs — REQUESTED work orders for the Requests inbox
+// ---------------------------------------------------------------------------
+
+const getCachedRequestedJobs = unstable_cache(
+  async (tenantId: string): Promise<RequestedJobCard[]> => {
+    const rows = await prisma.workOrder.findMany({
+      where: { tenantId, status: "REQUESTED" },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        vehicleId: true,
+      },
+    });
+
+    const vehicleIds = rows.map((row) => row.vehicleId);
+    const vehicles = await prisma.vehicle.findMany({
+      where: { id: { in: vehicleIds } },
+      select: {
+        id: true,
+        make: true,
+        model: true,
+        year: true,
+        clientId: true,
+      },
+    });
+    const vehicleById = new Map(vehicles.map((v) => [v.id, v]));
+
+    const clientIds = vehicles.map((v) => v.clientId);
+    const clients = await prisma.client.findMany({
+      where: { id: { in: clientIds } },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    const clientById = new Map(clients.map((c) => [c.id, c]));
+
+    return rows.map((row) => {
+      const v = vehicleById.get(row.vehicleId);
+      const c = v ? clientById.get(v.clientId) : null;
+      return {
+        id: row.id,
+        title: row.title,
+        createdAt: row.createdAt.toISOString(),
+        client: {
+          firstName: c?.firstName ?? "",
+          lastName: c?.lastName ?? "",
+        },
+        vehicle: {
+          make: v?.make ?? "",
+          model: v?.model ?? "",
+          year: v?.year ?? 0,
+        },
+      };
+    });
+  },
+  ["requested-jobs"],
+  { revalidate: 30, tags: ["requests", "jobs"] },
+);
+
+export async function fetchRequestedJobs(): Promise<
+  { data: RequestedJobCard[] } | { data: null; error: string }
+> {
+  const { tenantId } = await verifySession();
+
+  try {
+    const jobs = await getCachedRequestedJobs(tenantId);
+    return { data: jobs };
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      return { data: null, error: "Database synchronization pending or unreachable." };
+    }
+    const message = err instanceof Error ? err.message : "Failed to load requests.";
+    return { data: null, error: message };
+  }
+}
 
 // ---------------------------------------------------------------------------
 // fetchActiveJobs — primary data hook for the Active Jobs board

@@ -13,6 +13,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { renderContractPdf } from "@/lib/pdf-renderer";
+import { prisma } from "@/lib/prisma";
 import { sendContractEmail } from "@/lib/email";
 
 // ---------------------------------------------------------------------------
@@ -135,6 +136,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .getPublicUrl(fileName);
 
     const pdfUrl = urlData.publicUrl;
+
+    // ── Register WorkOrderDocument row (best-effort) ─────────────────────
+    try {
+      const workOrder = await prisma.workOrder.findUnique({
+        where: { id: workOrderId },
+        select: { tenantId: true },
+      });
+      if (workOrder) {
+        await prisma.workOrderDocument.create({
+          data: {
+            tenantId: workOrder.tenantId,
+            workOrderId,
+            type: "CONTRACT",
+            storageKey: fileName,
+            bucket: "contracts",
+            filename: fileName.split("/").pop() ?? "signed-contract.pdf",
+            metadataJson: { publicUrl: pdfUrl },
+          },
+        });
+      }
+    } catch {
+      // Non-fatal; PDF remains usable via direct link.
+    }
 
     // ── Email notification (best-effort) ──────────────────────────────────
     if (clientEmail) {

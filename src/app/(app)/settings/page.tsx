@@ -12,6 +12,12 @@ const SETTINGS_ITEMS = [
     description: "Toggle Inventory, Marketing, and Fleet features on or off.",
   },
   {
+    href: "/settings/security",
+    icon: "🔒",
+    title: "Security & Screen Lock",
+    description: "Idle and background lock timeouts. Stored on this device.",
+  },
+  {
     href: "/settings/tax",
     icon: "🧾",
     title: "Tax & Fee Matrix",
