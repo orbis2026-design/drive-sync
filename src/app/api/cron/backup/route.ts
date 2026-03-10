@@ -36,6 +36,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getR2Client, R2_BACKUP_BUCKET } from "@/lib/r2-storage";
+import { logger } from "@/lib/logger";
 
 const gzipAsync = promisify(gzip);
 
@@ -86,7 +87,7 @@ export async function GET(req: NextRequest) {
   for (const table of TABLES) {
     const { data, error } = await admin.from(table).select("*");
     if (error) {
-      console.error(`[cron/backup] Failed to read table "${table}":`, error.message);
+      logger.error(`Failed to read table "${table}"`, { service: "backup" }, error);
       return NextResponse.json(
         { error: `Failed to read table "${table}": ${error.message}` },
         { status: 500 },
@@ -106,7 +107,7 @@ export async function GET(req: NextRequest) {
     compressed = await gzipAsync(Buffer.from(json, "utf-8"));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown compression error";
-    console.error("[cron/backup] Compression failed:", msg);
+    logger.error("Compression failed", { service: "backup" }, err);
     return NextResponse.json({ error: `Compression failed: ${msg}` }, { status: 500 });
   }
 
@@ -131,7 +132,7 @@ export async function GET(req: NextRequest) {
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown upload error";
-    console.error("[cron/backup] R2 upload failed:", msg);
+    logger.error("R2 upload failed", { service: "backup" }, err);
     return NextResponse.json({ error: `R2 upload failed: ${msg}` }, { status: 500 });
   }
 
@@ -171,10 +172,10 @@ export async function GET(req: NextRequest) {
     }
   } catch (err) {
     // Non-fatal — log and continue so the successful backup is still reported.
-    console.warn("[cron/backup] Pruning old backups failed:", err);
+    logger.warn("Pruning old backups failed", { service: "backup" }, err);
   }
 
-  console.log(`[cron/backup] Backup complete: key=${objectKey}, pruned=${pruned}`);
+  logger.info("Backup complete", { service: "backup", objectKey, pruned });
 
   return NextResponse.json({
     ok: true,

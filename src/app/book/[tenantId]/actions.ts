@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { logger } from "@/lib/logger";
 
 export interface BookingPayload {
   tenantId: string;
@@ -84,18 +85,9 @@ export async function submitBooking(
     if (clientIsNew) {
       try {
         await admin.from("clients").delete().eq("id", clientData.id);
-      } catch {
-        // Best-effort cleanup — the work-order error is still returned below.
+      } catch (deleteErr) {
+        logger.error("Failed to delete orphaned client after work order insert failure", { service: "booking", clientId: clientData.id }, deleteErr);
       }
-    // Compensating delete: remove the client we just created to avoid an
-    // orphaned record with no work order attached.
-    try {
-      await admin.from("clients").delete().eq("id", clientData.id);
-    } catch (deleteErr) {
-      console.error(
-        `Failed to delete orphaned client ${clientData.id} after work order insert failure:`,
-        deleteErr,
-      );
     }
     return {
       error: `Failed to create work order: ${woError?.message ?? "unknown error"}`,

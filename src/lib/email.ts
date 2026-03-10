@@ -9,6 +9,7 @@
  */
 
 import { Resend } from "resend";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Client
@@ -54,9 +55,7 @@ export async function sendContractEmail(
 ): Promise<boolean> {
   const resend = getResendClient();
   if (!resend) {
-    console.warn(
-      "[email] RESEND_API_KEY not set — skipping contract email delivery.",
-    );
+    logger.warn("RESEND_API_KEY not set — skipping contract email delivery", { service: "email" });
     return false;
   }
 
@@ -96,19 +95,14 @@ export async function sendContractEmail(
     });
 
     if (error) {
-      console.error("[email] Failed to send contract email:", error);
+      logger.error("Failed to send contract email", { service: "email", workOrderId: input.workOrderId }, error);
       return false;
     }
 
-    console.info(
-      `[email] Contract PDF emailed to ${input.to} for WO ${input.workOrderId}`,
-    );
+    logger.info("Contract PDF emailed", { service: "email", recipient: input.to, workOrderId: input.workOrderId });
     return true;
   } catch (err) {
-    console.error(
-      "[email] Unexpected error sending contract email:",
-      err instanceof Error ? err.message : err,
-    );
+    logger.error("Unexpected error sending contract email", { service: "email" }, err);
     return false;
   }
 }

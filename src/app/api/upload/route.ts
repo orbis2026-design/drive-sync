@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { getR2Client, R2_BUCKET, r2PublicUrl } from "@/lib/r2-storage";
+import { logger } from "@/lib/logger";
 
 /** Pre-signed URLs expire after 10 minutes — enough for the upload to complete */
 const URL_EXPIRY_SECONDS = 600;
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       !contentType.trim() ||
       (!hasWorkOrder && !hasContext)
     ) {
-      console.warn("[api/upload] Validation failed: fileName, contentType, and either workOrderId or context are required.", { fileName, contentType, workOrderId, context });
+      logger.warn("Upload validation failed: fileName, contentType, and either workOrderId or context are required", { service: "upload", fileName, contentType, workOrderId, context });
       return NextResponse.json(
         { error: "fileName, contentType, and either workOrderId or context are required." },
         { status: 400 }
@@ -102,7 +103,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     } else if (context === "logo") {
       key = `logos/${Date.now()}-${safeName}`;
     } else {
-      console.warn("[api/upload] Validation failed: unsupported context value.", { context });
+      logger.warn("Upload validation failed: unsupported context value", { service: "upload", context });
       return NextResponse.json(
         { error: `Unsupported context value. Only "logo" is currently supported.` },
         { status: 400 }
@@ -124,7 +125,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ uploadUrl, publicUrl, key });
   } catch (err) {
-    console.error("[api/upload] Error generating pre-signed URL:", err);
+    logger.error("Failed to generate pre-signed URL", { service: "upload" }, err);
     return NextResponse.json(
       { error: "Internal server error." },
       { status: 500 }

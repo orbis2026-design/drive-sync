@@ -14,6 +14,7 @@
  */
 
 import { z } from "zod";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -180,11 +181,7 @@ export async function getSupplierToken(): Promise<AuthToken> {
       "[supplier-api] Production requires supplier credentials. Set SUPPLIER_BASE_URL, SUPPLIER_CLIENT_ID, SUPPLIER_CLIENT_SECRET.",
     );
   }
-  console.error(
-    "[supplier-api] DEV PATH: No real supplier credentials are configured. " +
-      "To connect to a live vendor account set SUPPLIER_BASE_URL, " +
-      "SUPPLIER_CLIENT_ID, and SUPPLIER_CLIENT_SECRET.",
-  );
+  logger.error("No real supplier credentials configured", { service: "supplier" });
   throw new Error(
     "[supplier-api] Missing supplier credentials. " +
       "Set SUPPLIER_BASE_URL, SUPPLIER_CLIENT_ID, and SUPPLIER_CLIENT_SECRET.",

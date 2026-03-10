@@ -25,6 +25,7 @@ import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe";
 import { decrementStockForWorkOrder } from "@/lib/inventory/auto-decrement";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Status mapping helpers
@@ -45,7 +46,7 @@ function stripeStatusToSupabase(status: string): SupabaseStatus {
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
-    console.error("[stripe/webhook] STRIPE_WEBHOOK_SECRET is not set.");
+    logger.error("STRIPE_WEBHOOK_SECRET is not set", { service: "stripe" });
     return NextResponse.json(
       { error: "Webhook secret not configured." },
       { status: 500 },
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
-    console.error("[stripe/webhook] Signature verification failed:", msg);
+    logger.error("Signature verification failed", { service: "stripe" }, err);
     return NextResponse.json(
       { error: `Webhook signature invalid: ${msg}` },
       { status: 400 },
@@ -118,10 +119,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (upsertError) {
       // For non-duplicate errors, log but continue — better to process
       // than to silently drop a billing event.
-      console.warn(
-        "[stripe/webhook] webhook_events upsert warning:",
-        upsertError,
-      );
+      logger.warn("webhook_events upsert warning", { service: "stripe" }, upsertError);
     }
   }
 
@@ -145,10 +143,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             .eq("stripe_customer_id", customerId);
 
           if (error) {
-            console.error(
-              "[stripe/webhook] Failed to update tenant on payment_succeeded:",
-              error,
-            );
+            logger.error("Failed to update tenant on payment_succeeded", { service: "stripe", eventType: event.type }, error);
           }
         }
         break;
@@ -170,10 +165,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             .eq("stripe_customer_id", customerId);
 
           if (error) {
-            console.error(
-              "[stripe/webhook] Failed to update tenant subscription status:",
-              error,
-            );
+            logger.error("Failed to update tenant subscription status", { service: "stripe", eventType: event.type }, error);
           }
         }
         break;
@@ -196,10 +188,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             .eq("stripe_customer_id", customerId);
 
           if (error) {
-            console.error(
-              "[stripe/webhook] Failed to set PAST_DUE on subscription.deleted:",
-              error,
-            );
+            logger.error("Failed to set PAST_DUE on subscription.deleted", { service: "stripe", eventType: event.type }, error);
           }
         }
         break;
@@ -232,10 +221,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             .eq("id", legacyTenantId);
 
           if (error) {
-            console.error(
-              "[stripe/webhook] Failed to save stripe_customer_id (legacy):",
-              error,
-            );
+            logger.error("Failed to save stripe_customer_id (legacy)", { service: "stripe", eventType: event.type }, error);
           }
 
           // Auto-decrement van stock for the work order.
@@ -258,11 +244,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             .eq("owner_user_id", ownerUserId);
 
           if (error) {
-            console.error(
-              "[stripe/webhook] Failed to activate tenant for user:",
-              ownerUserId,
-              error,
-            );
+            logger.error("Failed to activate tenant for user", { service: "stripe", eventType: event.type }, error);
           }
         }
         break;
@@ -274,7 +256,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
-    console.error("[stripe/webhook] Handler error:", msg);
+    logger.error("Handler error", { service: "stripe" }, err);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateTwilioWebhook } from "@/lib/twilio";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 
 /**
  * Twilio inbound SMS webhook.
@@ -97,7 +98,7 @@ export async function POST(req: NextRequest) {
           data: { opted_out_sms: true },
         });
       } catch (err) {
-        console.error("[twilio/webhook] Failed to set opted_out_sms:", err);
+        logger.error("Failed to set opted_out_sms", { service: "twilio", tenantId }, err);
       }
     }
 
@@ -112,7 +113,7 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (lookupError) {
-        console.error("[twilio/webhook] Idempotency check failed:", lookupError);
+        logger.error("Idempotency check failed", { service: "twilio", tenantId }, lookupError);
         // Continue processing — better to risk a duplicate than to silently drop a message.
       } else if (existingMessage) {
         return new NextResponse(twilioXml(), {
@@ -133,7 +134,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (error) {
-      console.error("[twilio/webhook] Supabase insert error:", error);
+      logger.error("Message insert failed", { service: "twilio", tenantId }, error);
       return new NextResponse(twilioXml("Database error"), {
         status: 500,
         headers: { "Content-Type": "text/xml" },
@@ -147,7 +148,7 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "text/xml" },
     });
   } catch (err) {
-    console.error("[twilio/webhook] Unexpected error:", err);
+    logger.error("Unexpected webhook error", { service: "twilio" }, err);
     return new NextResponse(twilioXml("Internal server error"), {
       status: 500,
       headers: { "Content-Type": "text/xml" },

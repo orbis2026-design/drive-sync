@@ -9,6 +9,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 
 /**
  * Decrements the matching oil consumable in the tenant's inventory when a
@@ -74,9 +75,7 @@ export async function decrementStockForWorkOrder(
     }
 
     if (!consumable) {
-      console.warn(
-        `[auto-decrement] No consumable matching "${oilWeightOem}" found for tenant ${tenantId}. Skipping stock deduction.`,
-      );
+      logger.warn("No matching consumable found — skipping stock deduction", { service: "inventory", tenantId, oilWeight: oilWeightOem });
       return;
     }
 
@@ -87,15 +86,9 @@ export async function decrementStockForWorkOrder(
       data: { currentStock: newStock },
     });
 
-    console.info(
-      `[auto-decrement] Deducted ${oilCapacityQts} qt of "${consumable.name}" for work order ${workOrderId}. New stock: ${newStock}`,
-    );
+    logger.info("Auto-decremented consumable stock", { service: "inventory", tenantId, workOrderId, consumableName: consumable.name, deducted: oilCapacityQts, newStock });
   } catch (err) {
     // Best-effort — never throw from here
-    console.error(
-      "[auto-decrement] Failed to auto-decrement stock for work order",
-      workOrderId,
-      err,
-    );
+    logger.error("Failed to auto-decrement stock", { service: "inventory", tenantId, workOrderId }, err);
   }
 }

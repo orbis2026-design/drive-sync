@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -137,7 +138,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ result });
   } catch (err) {
-    console.error("[api/ai/ocr] Error:", err);
+    logger.error("OCR API request failed", { service: "openai" }, err);
     return NextResponse.json({ error: "Internal server error." }, { status: 500 });
   }
 }

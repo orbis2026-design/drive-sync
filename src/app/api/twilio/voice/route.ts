@@ -23,6 +23,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateTwilioWebhook, sendSMS } from "@/lib/twilio";
+import { logger } from "@/lib/logger";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "";
 
@@ -173,7 +174,7 @@ async function handleMissedCall(req: NextRequest, params: Record<string, string>
   // Send the missed-call text via the shared Twilio client.
   const smsResult = await sendSMS(callerPhone, smsBody);
   if (!smsResult.success) {
-    console.error("[twilio/voice] Failed to send missed-call SMS:", smsResult.error);
+    logger.error("Failed to send missed-call SMS", { service: "twilio", tenantId }, smsResult.error);
   }
 
   // Log as a LEAD in the clients table (upsert by phone to avoid duplication).
@@ -199,7 +200,7 @@ async function handleMissedCall(req: NextRequest, params: Record<string, string>
         });
       }
     } catch (err) {
-      console.error("[twilio/voice] Failed to log lead:", err);
+      logger.error("Failed to log lead", { service: "twilio", tenantId }, err);
     }
   }
 
