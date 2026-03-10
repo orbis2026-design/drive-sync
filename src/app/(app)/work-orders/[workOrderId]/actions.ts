@@ -20,6 +20,8 @@ export type HubWorkOrder = {
   title: string;
   description: string;
   status: WorkOrderStatus;
+  /** True when the current viewer is the shop owner for this tenant. */
+  viewerIsOwner: boolean;
   laborCents: number;
   partsCents: number;
   notes: string | null;
@@ -34,13 +36,6 @@ export type HubWorkOrder = {
     bucket: string;
     storageKey: string;
     publicUrl: string | null;
-    createdAt: string;
-  }[];
-  expenses: {
-    id: string;
-    amount: number;
-    vendor: string;
-    category: string;
     createdAt: string;
   }[];
   expenses: {
@@ -94,6 +89,8 @@ export async function getWorkOrderForHub(
 
   const roleRow = await getUserRole(userId);
   if (!roleRow?.tenantId) return { error: "No tenant assigned." };
+
+  const viewerIsOwner = roleRow.role === "SHOP_OWNER";
 
   try {
     const workOrder = await prisma.workOrder.findFirst({
@@ -206,6 +203,7 @@ export async function getWorkOrderForHub(
         title: workOrder.title,
         description: workOrder.description,
         status: workOrder.status,
+        viewerIsOwner,
         laborCents: workOrder.laborCents,
         partsCents: workOrder.partsCents,
         notes: workOrder.notes,
@@ -520,6 +518,99 @@ export async function getFieldTechsForTenant(): Promise<
     return { data: options };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to load technicians.";
+    return { error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// forceApproveWorkOrder — owner-only manual approval bypassing client portal
+// ---------------------------------------------------------------------------
+
+/**
+ * Marks a work order as COMPLETE without requiring client approval.
+ *
+ * - SHOP_OWNER only.
+ * - Allowed from ACTIVE, PENDING_APPROVAL, or BLOCKED_WAITING_APPROVAL.
+ * - Clears any pending delta approval token.
+ * - Records a SYSTEM timeline event for auditability.
+ */
+export async function forceApproveWorkOrder(
+  workOrderId: string,
+): Promise<{ ok: true } | { error: string }> {
+  const { tenantId, userId } = await verifySession();
+
+  const roleRow = await getUserRole(userId);
+  if (roleRow?.role !== "SHOP_OWNER") {
+    return { error: "Only shop owners can force-approve work orders." };
+  }
+
+  try {
+    const workOrder = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
+      select: { id: true, status: true, title: true },
+    });
+
+    if (!workOrder) {
+      return { error: "Work order not found." };
+    }
+
+    const allowedStatuses: WorkOrderStatus[] = [
+      "ACTIVE",
+      "PENDING_APPROVAL",
+      "BLOCKED_WAITING_APPROVAL",
+    ];
+
+    if (!allowedStatuses.includes(workOrder.status as WorkOrderStatus)) {
+      return {
+        error:
+          "Force approval is only available for ACTIVE, PENDING_APPROVAL, or BLOCKED_WAITING_APPROVAL jobs.",
+      };
+    }
+
+    await prisma.workOrder.update({
+      where: { id: workOrderId },
+      data: {
+        status: "COMPLETE",
+        // When force-approving we treat any pending change-order as resolved.
+        deltaApprovalToken: null,
+      },
+    });
+
+    // Best-effort mirror to Supabase work_orders.
+    try {
+      const admin = createAdminClient();
+      await admin
+        .from("work_orders")
+        .update({
+          status: "COMPLETE",
+          delta_approval_token: null,
+        })
+        .eq("id", workOrderId)
+        .eq("tenant_id", tenantId);
+    } catch {
+      // Non-fatal in environments where Supabase is not fully provisioned.
+    }
+
+    // Record a SYSTEM event on the work order timeline.
+    await createWorkOrderEvent({
+      workOrderId,
+      scope: "WORK_ORDER",
+      kind: "SYSTEM",
+      title: "Force-approved by shop owner",
+      body: `Work order "${workOrder.title}" was manually marked COMPLETE without client portal approval.`,
+      metadataJson: {
+        actorUserId: userId,
+        method: "forceApproveWorkOrder",
+      },
+    });
+
+    revalidatePath("/jobs");
+    revalidatePath(`/work-orders/${workOrderId}`);
+    revalidateTag("jobs");
+    return { ok: true };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to force-approve work order.";
     return { error: message };
   }
 }

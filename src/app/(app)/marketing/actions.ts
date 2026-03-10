@@ -60,31 +60,64 @@ export async function fetchQueuedMessages(): Promise<
   const { tenantId } = await verifySession();
 
   try {
-    const rows = await prisma.outboundCampaign.findMany({
+    const campaigns = await prisma.outboundCampaign.findMany({
       where: {
         tenantId,
         status: "QUEUED",
-        client: { opted_out_sms: false },
       },
       orderBy: { createdAt: "asc" },
       select: {
         id: true,
+        clientId: true,
         phoneNumber: true,
         message: true,
         campaignType: true,
         createdAt: true,
-        client: { select: { firstName: true, lastName: true } },
       },
     });
 
-    const data: QueuedMessage[] = rows.map((r: (typeof rows)[number]) => ({
-      id: r.id,
-      phoneNumber: r.phoneNumber,
-      message: r.message,
-      campaignType: r.campaignType,
-      createdAt: r.createdAt.toISOString(),
-      client: r.client,
-    }));
+    const clientIds = Array.from(
+      new Set(
+        campaigns
+          .map((c) => c.clientId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+
+    const clients =
+      clientIds.length === 0
+        ? []
+        : await prisma.client.findMany({
+            where: {
+              id: { in: clientIds },
+              tenantId,
+              opted_out_sms: false,
+            },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          });
+
+    const clientById = new Map(
+      clients.map((c) => [c.id, { firstName: c.firstName, lastName: c.lastName }]),
+    );
+
+    const filteredCampaigns = campaigns.filter((c) =>
+      clientById.has(c.clientId),
+    );
+
+    const data: QueuedMessage[] = filteredCampaigns.map(
+      (r: (typeof filteredCampaigns)[number]) => ({
+        id: r.id,
+        phoneNumber: r.phoneNumber,
+        message: r.message,
+        campaignType: r.campaignType,
+        createdAt: r.createdAt.toISOString(),
+        client: clientById.get(r.clientId) ?? null,
+      }),
+    );
 
     return { data };
   } catch (err) {
@@ -208,22 +241,43 @@ export async function fetchSentLog(): Promise<
       take: 50,
       select: {
         id: true,
+        clientId: true,
         phoneNumber: true,
         message: true,
         sentAt: true,
-        client: { select: { firstName: true, lastName: true } },
       },
     });
 
-    const data: SentLogItem[] = rows.map((r: (typeof rows)[number]) => ({
-      id: r.id,
-      phoneNumber: r.phoneNumber,
-      message: r.message,
-      sentAt: r.sentAt?.toISOString() ?? null,
-      clientName: r.client
-        ? `${r.client.firstName} ${r.client.lastName}`
-        : null,
-    }));
+    const clientIds = Array.from(
+      new Set(
+        rows
+          .map((r) => r.clientId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+
+    const clients =
+      clientIds.length === 0
+        ? []
+        : await prisma.client.findMany({
+            where: { id: { in: clientIds }, tenantId },
+            select: { id: true, firstName: true, lastName: true },
+          });
+
+    const clientById = new Map(
+      clients.map((c) => [c.id, { firstName: c.firstName, lastName: c.lastName }]),
+    );
+
+    const data: SentLogItem[] = rows.map((r: (typeof rows)[number]) => {
+      const client = clientById.get(r.clientId);
+      return {
+        id: r.id,
+        phoneNumber: r.phoneNumber,
+        message: r.message,
+        sentAt: r.sentAt?.toISOString() ?? null,
+        clientName: client ? `${client.firstName} ${client.lastName}` : null,
+      };
+    });
 
     return { data };
   } catch (err) {
@@ -290,14 +344,24 @@ export async function approveAndSendMessage(
   try {
     const campaign = await prisma.outboundCampaign.findFirst({
       where: { id, tenantId },
-      include: { client: { select: { opted_out_sms: true } } },
+      select: {
+        id: true,
+        status: true,
+        phoneNumber: true,
+        message: true,
+        clientId: true,
+      },
     });
     if (!campaign) return { error: "Message not found." };
     if (campaign.status !== "QUEUED")
       return { error: "Message is no longer queued." };
 
     // Check opt-out status before sending.
-    if (campaign.client?.opted_out_sms) {
+    const client = await prisma.client.findFirst({
+      where: { id: campaign.clientId, tenantId },
+      select: { opted_out_sms: true },
+    });
+    if (client?.opted_out_sms) {
       return { error: "Client has opted out of SMS messages." };
     }
 

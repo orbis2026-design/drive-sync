@@ -172,6 +172,189 @@ model Consumable {
   @@map("consumables")
 }
 
+model Part {
+  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String                 @map("tenant_id") @db.Uuid
+  partNumber            String?                @map("part_number")
+  name                  String
+  brand                 String?
+  category              String?
+  subcategory           String?
+  unit                  String?
+  barcode               String?
+  defaultMarkupPercent  Decimal?               @map("default_markup_percent") @db.Decimal(5, 2)
+  createdAt             DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  stockLevels           StockLevel[]
+  inventoryTransactions InventoryTransaction[]
+  purchaseOrderLines    PurchaseOrderLine[]
+  packageItems          PackageItem[]
+
+  @@index([tenantId], map: "idx_parts_tenant_id")
+  @@unique([tenantId, partNumber], map: "uq_parts_tenant_part_number")
+  @@map("parts")
+}
+
+model InventoryLocation {
+  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String                 @map("tenant_id") @db.Uuid
+  name                  String
+  code                  String?
+  kind                  String                 @default("PRIMARY")
+  createdAt             DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  stockLevels           StockLevel[]
+  inventoryTransactions InventoryTransaction[]
+
+  @@index([tenantId], map: "idx_inventory_locations_tenant_id")
+  @@map("inventory_locations")
+}
+
+model StockLevel {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  partId            String   @map("part_id") @db.Uuid
+  locationId        String   @map("location_id") @db.Uuid
+  quantity          Decimal  @default(0) @map("quantity") @db.Decimal(12, 2)
+  lowStockThreshold Decimal  @default(0) @map("low_stock_threshold") @db.Decimal(12, 2)
+  costPerUnitCents  Int      @default(0) @map("cost_per_unit_cents")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  part              Part              @relation(fields: [partId], references: [id])
+  location          InventoryLocation @relation(fields: [locationId], references: [id])
+
+  @@index([tenantId, locationId], map: "idx_stock_levels_tenant_location")
+  @@unique([tenantId, partId, locationId], map: "uq_stock_levels_tenant_part_location")
+  @@map("stock_levels")
+}
+
+model InventoryTransaction {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  partId           String   @map("part_id") @db.Uuid
+  locationId       String   @map("location_id") @db.Uuid
+  quantity         Decimal  @map("quantity") @db.Decimal(12, 2)
+  direction        String   @map("direction")
+  reason           String   @map("reason")
+  costPerUnitCents Int?     @map("cost_per_unit_cents")
+  metadata         Json?    @map("metadata_json")
+  occurredAt       DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  part             Part              @relation(fields: [partId], references: [id])
+  location         InventoryLocation @relation(fields: [locationId], references: [id])
+
+  @@index([tenantId, occurredAt], map: "idx_inventory_transactions_tenant_occurred_at")
+  @@map("inventory_transactions")
+}
+
+model Vendor {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  name        String
+  contactName String?  @map("contact_name")
+  phone       String?
+  email       String?
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  purchaseOrders PurchaseOrder[]
+
+  @@index([tenantId], map: "idx_vendors_tenant_id")
+  @@unique([tenantId, name], map: "uq_vendors_tenant_name")
+  @@map("vendors")
+}
+
+model PurchaseOrder {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String             @map("tenant_id") @db.Uuid
+  vendorId         String?            @map("vendor_id") @db.Uuid
+  supplierPoNumber String?            @map("supplier_po_number")
+  status           String             @default("CONFIRMED")
+  deliveryType     String             @map("delivery_type")
+  estimatedReadyAt DateTime?          @map("estimated_ready_at") @db.Timestamptz(6)
+  receivedAt       DateTime?          @map("received_at") @db.Timestamptz(6)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  vendor           Vendor?            @relation(fields: [vendorId], references: [id])
+  lines            PurchaseOrderLine[]
+
+  @@index([tenantId], map: "idx_purchase_orders_tenant_id")
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String        @map("tenant_id") @db.Uuid
+  purchaseOrderId    String        @map("purchase_order_id") @db.Uuid
+  partId             String?       @map("part_id") @db.Uuid
+  partNumber         String        @map("part_number")
+  description        String        @map("description")
+  qty                Decimal       @map("qty") @db.Decimal(12, 2)
+  wholesalePriceCents Int          @map("wholesale_price_cents")
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  purchaseOrder      PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  part               Part?         @relation(fields: [partId], references: [id])
+
+  @@index([tenantId, purchaseOrderId], map: "idx_purchase_order_lines_tenant_po")
+  @@map("purchase_order_lines")
+}
+
+model LaborService {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String        @map("tenant_id") @db.Uuid
+  name        String
+  description String?
+  laborType   String        @map("labor_type")
+  defaultHours Decimal      @map("default_hours") @db.Decimal(5, 2)
+  rateCents   Int?          @map("rate_cents")
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  packageItems PackageItem[]
+
+  @@index([tenantId], map: "idx_labor_services_tenant_id")
+  @@map("labor_services")
+}
+
+model Package {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String        @map("tenant_id") @db.Uuid
+  name        String
+  description String?
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  items       PackageItem[]
+
+  @@index([tenantId], map: "idx_packages_tenant_id")
+  @@map("packages")
+}
+
+model PackageItem {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
+  packageId      String       @map("package_id") @db.Uuid
+  kind           String       @map("kind")
+  partId         String?      @map("part_id") @db.Uuid
+  laborServiceId String?      @map("labor_service_id") @db.Uuid
+  quantity       Decimal      @map("quantity") @db.Decimal(12, 2)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  package        Package      @relation(fields: [packageId], references: [id])
+  part           Part?        @relation(fields: [partId], references: [id])
+  laborService   LaborService? @relation(fields: [laborServiceId], references: [id])
+
+  @@index([tenantId, packageId], map: "idx_package_items_tenant_package")
+  @@map("package_items")
+}
+
 model Warranty {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId       String    @map("tenant_id") @db.Uuid

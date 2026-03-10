@@ -10,6 +10,7 @@ import {
   declineRequest,
   assignTech,
   addWorkOrderNote,
+  forceApproveWorkOrder,
 } from "./actions";
 import { generateAndSendInvoice } from "@/app/(app)/checkout/[workOrderId]/actions";
 import { useToast } from "@/components/Toast";
@@ -134,6 +135,25 @@ export function JobCardHubClient({
         showToast("ETA SMS sent to client.");
       } catch {
         showToast("Failed to send ETA SMS.", "error");
+      }
+    });
+  }
+
+  function handleForceApprove() {
+    if (
+      !confirm(
+        "Force-approve this job without client portal approval? This will mark the work order as COMPLETE and should only be used when you have explicit offline consent from the client.",
+      )
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      const result = await forceApproveWorkOrder(workOrder.id);
+      if ("error" in result) {
+        showToast(result.error, "error");
+      } else {
+        showToast("Work order force-approved.");
+        window.location.reload();
       }
     });
   }
@@ -314,6 +334,20 @@ export function JobCardHubClient({
               Collect payment
             </Link>
           )}
+          {/* Owner-only emergency controls */}
+          {workOrder.viewerIsOwner &&
+            (workOrder.status === "ACTIVE" ||
+              workOrder.status === "PENDING_APPROVAL" ||
+              workOrder.status === "BLOCKED_WAITING_APPROVAL") && (
+              <button
+                type="button"
+                onClick={handleForceApprove}
+                disabled={isPending}
+                className="inline-flex rounded-xl border border-danger-500/60 bg-danger-500/10 px-4 py-2.5 text-sm font-bold text-danger-400 hover:bg-danger-500/20 disabled:opacity-50"
+              >
+                Force-approve (owner)
+              </button>
+            )}
           {workOrder.status !== "REQUESTED" &&
             workOrder.status !== "INTAKE" &&
             workOrder.status !== "PAID" &&
