@@ -26,6 +26,16 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getPendingWorkOrders, markSynced } from "@/lib/offline-db";
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Max time to wait for a sync request before treating the network as dead. */
+const SYNC_FETCH_TIMEOUT_MS = 5_000;
+
+/** Milliseconds to wait after `online` event before attempting sync. */
+const RECONNECT_DEBOUNCE_MS = 3_000;
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -62,6 +72,7 @@ export function useOfflineSync(): OfflineSyncState {
 
   // Prevent concurrent sync runs
   const syncInProgress = useRef(false);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearConflict = useCallback(() => setConflictError(null), []);
 
@@ -112,6 +123,7 @@ export function useOfflineSync(): OfflineSyncState {
                 versionHash: wo.versionHash,
                 patch,
               }),
+              signal: AbortSignal.timeout(SYNC_FETCH_TIMEOUT_MS),
             });
 
             if (res.ok) {
@@ -140,12 +152,20 @@ export function useOfflineSync(): OfflineSyncState {
                 );
                 // Do NOT mark as synced — leave in queue so the mechanic can
                 // see which record caused the conflict.
+              } else if (errBody.code === "VERSION_CONFLICT") {
+                // Surface to user so they know to refresh. Mark as synced to
+                // clear it from the queue — the server version is authoritative.
+                setConflictError(
+                  errBody.error ??
+                    "Sync conflict: this work order was updated by another session while you were offline. Please refresh the page to load the latest version.",
+                );
+                await markSynced(wo.id);
               }
-              // For VERSION_CONFLICT the record stays in the queue and will
-              // be retried on the next sync cycle after a page refresh.
+              // For any other 409 the record stays in the queue and will
+              // be retried on the next sync cycle.
             }
           } catch {
-            // Network failure — leave as unsynced; will retry on next cycle.
+            // Network failure or timeout — leave as unsynced; will retry on next cycle.
           }
         }),
       );
@@ -162,9 +182,23 @@ export function useOfflineSync(): OfflineSyncState {
 
   useEffect(() => {
     function handleOnline() {
-      setIsOnline(true);
+      // Debounce: wait RECONNECT_DEBOUNCE_MS to confirm connection stability
+      // before triggering sync. If offline fires again within the window,
+      // the timer is cleared.
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current);
+      }
+      reconnectTimer.current = setTimeout(() => {
+        reconnectTimer.current = null;
+        setIsOnline(true);
+      }, RECONNECT_DEBOUNCE_MS);
     }
     function handleOffline() {
+      // Cancel any pending reconnect debounce
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current);
+        reconnectTimer.current = null;
+      }
       setIsOnline(false);
     }
 
@@ -174,6 +208,9 @@ export function useOfflineSync(): OfflineSyncState {
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current);
+      }
     };
   }, []);
 
