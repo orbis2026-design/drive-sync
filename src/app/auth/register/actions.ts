@@ -1,16 +1,16 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getSessionUserId } from "@/lib/auth";
 
 function generateSlug(email: string): string {
   const prefix = email.split("@")[0].toLowerCase().replace(/[^a-z0-9]/g, "-");
   return `${prefix}-${Date.now().toString(36)}`;
 }
 
-export async function provisionTenant(
-  userId: string,
-): Promise<{ success: true } | { error: string }> {
+export async function provisionTenant(): Promise<{ success: true } | { error: string }> {
   try {
+    const userId = await getSessionUserId();
     if (!userId) {
       return { error: "Authentication required." };
     }

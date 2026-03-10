@@ -101,6 +101,7 @@ export async function getQboStatus(): Promise<QboStatus> {
 // ---------------------------------------------------------------------------
 
 export async function getQboOAuthUrl(): Promise<{ url: string }> {
+  await verifySession();
   const state = crypto.randomUUID();
   const params = new URLSearchParams({
     client_id: QBO_CLIENT_ID,
