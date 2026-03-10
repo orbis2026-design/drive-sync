@@ -18,9 +18,6 @@ export default async function TrackingPage({ params }: TrackingPageProps) {
       where: { approvalToken: token },
       select: {
         id: true,
-        client: {
-          select: { phone: true },
-        },
         tenant: {
           select: { name: true },
         },

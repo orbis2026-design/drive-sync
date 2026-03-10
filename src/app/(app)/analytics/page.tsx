@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { fetchAnalytics } from "./actions";
 import { WeeklyRevenueChart } from "./AnalyticsClient";
+import { EmptyState } from "@/components/EmptyState";
 
 // ---------------------------------------------------------------------------
 // Metadata
@@ -180,23 +180,12 @@ export default async function AnalyticsPage() {
             )}
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <span className="text-6xl mb-4" aria-hidden="true">
-              📊
-            </span>
-            <p className="text-2xl font-black text-white mb-2">
-              No revenue data yet
-            </p>
-            <p className="text-base text-gray-400 mb-8">
-              Complete your first job to see revenue trends, charts, and insights here.
-            </p>
-            <Link
-              href="/intake"
-              className="px-6 py-3 rounded-2xl bg-brand-400 text-gray-950 font-bold text-sm hover:bg-brand-300 active:scale-95 transition-all"
-            >
-              + New Intake
-            </Link>
-          </div>
+          <EmptyState
+            icon="📊"
+            title="No revenue data yet"
+            description="Complete your first work order to start seeing revenue charts, average ticket size, and monthly trends."
+            action={{ label: "+ New Intake", href: "/intake" }}
+          />
         )}
       </div>
     </div>

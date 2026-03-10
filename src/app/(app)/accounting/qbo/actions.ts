@@ -224,7 +224,7 @@ export async function syncPaidWorkOrders(
     laborCents: number;
     partsCents: number;
     closedAt: Date | null;
-    client: { firstName: string; lastName: string; email: string | null };
+    vehicle: { client: { firstName: string; lastName: string; email: string | null } };
   }[] = [];
 
   try {
@@ -236,8 +236,8 @@ export async function syncPaidWorkOrders(
         laborCents: true,
         partsCents: true,
         closedAt: true,
-        client: {
-          select: { firstName: true, lastName: true, email: true },
+        vehicle: {
+          select: { client: { select: { firstName: true, lastName: true, email: true } } },
         },
       },
       take: 25,
@@ -280,7 +280,7 @@ export async function syncPaidWorkOrders(
           : []),
       ],
       CustomerRef: {
-        name: `${wo.client.firstName} ${wo.client.lastName}`,
+        name: `${wo.vehicle.client.firstName} ${wo.vehicle.client.lastName}`,
       },
       TxnDate: wo.closedAt
         ? wo.closedAt.toISOString().split("T")[0]

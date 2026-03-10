@@ -159,6 +159,11 @@ export interface CreateTenantVehicleInput {
   licensePlate?: string;
   mileage?: number;
   color?: string;
+  make?: string;
+  model?: string;
+  year?: number;
+  oilType?: string;
+  tireSize?: string;
 }
 
 export interface TenantVehicleResult {
@@ -194,6 +199,11 @@ export async function createTenantVehicle(
       license_plate: input.licensePlate?.trim() || null,
       mileage: input.mileage ?? null,
       color: input.color?.trim() || null,
+      make: input.make ?? null,
+      model: input.model ?? null,
+      year: input.year ?? null,
+      oil_type: input.oilType ?? null,
+      tire_size: input.tireSize ?? null,
     })
     .select("id, tenant_id, client_id, global_vehicle_id")
     .single();

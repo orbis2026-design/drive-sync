@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
     laborCents: number;
     partsCents: number;
     tenant: { id: string; name: string; stripeCustomerId: string | null };
-    client: { firstName: string; lastName: string; email: string | null };
+    vehicle: { client: { firstName: string; lastName: string; email: string | null } };
   } | null = null;
 
   try {
@@ -141,8 +141,8 @@ export async function POST(req: NextRequest) {
         tenant: {
           select: { id: true, name: true, stripeCustomerId: true },
         },
-        client: {
-          select: { firstName: true, lastName: true, email: true },
+        vehicle: {
+          select: { client: { select: { firstName: true, lastName: true, email: true } } },
         },
       },
     });
@@ -196,9 +196,9 @@ export async function POST(req: NextRequest) {
       metadata: {
         workOrderId: workOrder.id,
         tenantId: workOrder.tenant.id,
-        clientName: `${workOrder.client.firstName} ${workOrder.client.lastName}`,
+        clientName: `${workOrder.vehicle.client.firstName} ${workOrder.vehicle.client.lastName}`,
       },
-      customer_email: workOrder.client.email ?? undefined,
+      customer_email: workOrder.vehicle.client.email ?? undefined,
       success_url: `${appUrl}/portal/${token ?? workOrder.id}?payment=success`,
       cancel_url: `${appUrl}/portal/${token ?? workOrder.id}?payment=cancelled`,
       // Billing address collection is required for Affirm/Klarna.

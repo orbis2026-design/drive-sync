@@ -9,6 +9,7 @@ import {
   type MaintenanceInterval,
   type SubmodelOption,
 } from "./actions";
+import { ClientSearchStep, type SelectedClient } from "./ClientSearchStep";
 
 // ---------------------------------------------------------------------------
 // Metadata is handled by the parent layout or a separate metadata export.
@@ -497,7 +498,7 @@ function BottomSheet({ result, vin, resolvedSubmodel, onClose }: BottomSheetProp
   const { globalVehicle, cacheHit } = result;
 
   // Tenant vehicle form state
-  const [clientId, setClientId] = useState("");
+  const [selectedClient, setSelectedClient] = useState<SelectedClient | null>(null);
   const [licensePlate, setLicensePlate] = useState("");
   const [mileage, setMileage] = useState("");
   const [color, setColor] = useState("");
@@ -507,20 +508,23 @@ function BottomSheet({ result, vin, resolvedSubmodel, onClose }: BottomSheetProp
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    if (!clientId.trim()) {
-      setSaveError("Client ID is required.");
+    if (!selectedClient) {
+      setSaveError("Please select or create a client first.");
       return;
     }
     setSaving(true);
     setSaveError(null);
 
     const res = await createTenantVehicle({
-      clientId: clientId.trim(),
+      clientId: selectedClient.id,
       globalVehicleId: globalVehicle.id,
       vin,
       licensePlate: licensePlate.trim() || undefined,
       mileage: mileage ? parseInt(mileage, 10) : undefined,
       color: color.trim() || undefined,
+      make: globalVehicle.make,
+      model: globalVehicle.model,
+      year: globalVehicle.year,
     });
 
     setSaving(false);
@@ -631,21 +635,10 @@ function BottomSheet({ result, vin, resolvedSubmodel, onClose }: BottomSheetProp
 
               <form onSubmit={handleSave} className="space-y-3">
                 <div>
-                  <label
-                    htmlFor="client-id"
-                    className="block text-xs font-semibold text-gray-400 mb-1"
-                  >
-                    Client ID <span className="text-danger-500">*</span>
+                  <label className="block text-xs font-semibold text-gray-400 mb-1">
+                    Client <span className="text-danger-500">*</span>
                   </label>
-                  <input
-                    id="client-id"
-                    type="text"
-                    required
-                    placeholder="UUID of the client"
-                    value={clientId}
-                    onChange={(e) => setClientId(e.target.value)}
-                    className="w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-3 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400"
-                  />
+                  <ClientSearchStep onClientSelected={setSelectedClient} />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">

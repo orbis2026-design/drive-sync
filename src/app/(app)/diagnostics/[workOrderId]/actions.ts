@@ -316,9 +316,9 @@ export async function lookupTSBs(
     });
 
     if (workOrder?.vehicle) {
-      make = workOrder.vehicle.make;
-      model = workOrder.vehicle.model;
-      year = workOrder.vehicle.year;
+      make = workOrder.vehicle.make ?? "Unknown";
+      model = workOrder.vehicle.model ?? "Unknown";
+      year = workOrder.vehicle.year ?? new Date().getFullYear();
     }
   } catch {
     // Database unavailable in demo — continue with generic vehicle context.

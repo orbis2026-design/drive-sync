@@ -134,7 +134,6 @@ export async function submitIntakeRequest(
       return tx.workOrder.create({
         data: {
           tenantId: payload.tenantId,
-          clientId,
           vehicleId: vehicle.id,
           status: "REQUESTED",
           title,

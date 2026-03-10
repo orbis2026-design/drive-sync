@@ -182,8 +182,7 @@ export async function getDiagnosticTicketData(workOrderId: string): Promise<
         isDiagnostic: true,
         diagnosticFeeCents: true,
         rollDiagnosticFee: true,
-        vehicle: { select: { make: true, model: true, year: true, vin: true } },
-        client: { select: { firstName: true, lastName: true, phone: true } },
+        vehicle: { select: { make: true, model: true, year: true, vin: true, client: { select: { firstName: true, lastName: true, phone: true } } } },
       },
     });
 
@@ -198,8 +197,13 @@ export async function getDiagnosticTicketData(workOrderId: string): Promise<
         diagnosticFeeCents: workOrder.diagnosticFeeCents,
         rollDiagnosticFee: workOrder.rollDiagnosticFee,
         isDiagnostic: workOrder.isDiagnostic,
-        vehicle: workOrder.vehicle,
-        client: workOrder.client,
+        vehicle: {
+          make: workOrder.vehicle.make ?? "",
+          model: workOrder.vehicle.model ?? "",
+          year: workOrder.vehicle.year ?? 0,
+          vin: workOrder.vehicle.vin,
+        },
+        client: workOrder.vehicle.client,
       },
     };
   } catch (err) {

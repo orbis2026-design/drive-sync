@@ -18,31 +18,31 @@ model Tenant {
   name               String
   slug               String             @unique
   // Stripe Billing (Issue #29)
-  stripeCustomerId   String?            @unique
-  subscriptionStatus SubscriptionStatus @default(ACTIVE)
+  stripeCustomerId   String?            @unique @map("stripe_customer_id")
+  subscriptionStatus SubscriptionStatus @default(ACTIVE) @map("subscription_status")
   // QuickBooks Online OAuth (Issue #32) — tokens stored server-side only
-  qboRealmId         String?
-  qboAccessToken     String?
-  qboRefreshToken    String?
+  qboRealmId         String?  @map("qbo_realm_id")
+  qboAccessToken     String?  @map("qbo_access_token")
+  qboRefreshToken    String?  @map("qbo_refresh_token")
   // Google Business integration (Issue #33)
-  googlePlaceId      String?
-  reviewLink         String?
+  googlePlaceId      String?  @map("google_place_id")
+  reviewLink         String?  @map("review_link")
   // Mechanic's forwarding cell phone for Twilio voice (Issue #34)
-  ownerPhone         String?
+  ownerPhone         String?  @map("owner_phone")
   // Feature flags for optional product modules (Issue #49)
   // Shape: { "inventory": Boolean, "marketing": Boolean, "fleet": Boolean }
-  featuresJson       Json               @default("{\"inventory\":true,\"marketing\":true,\"fleet\":true}")
+  featuresJson       Json     @default("{\"inventory\":true,\"marketing\":true,\"fleet\":true}") @map("features_json")
   // Tax & Environmental Fee Matrix (Issue #51)
   // Shape: { "labor_tax_rate": 0.00, "parts_tax_rate": 0.085, "environmental_fee_flat": 5.00, "environmental_fee_percentage": 0.00 }
-  taxMatrixJson      Json               @default("{\"labor_tax_rate\":0.00,\"parts_tax_rate\":0.085,\"environmental_fee_flat\":5.00,\"environmental_fee_percentage\":0.00}")
+  taxMatrixJson      Json     @default("{\"labor_tax_rate\":0.00,\"parts_tax_rate\":0.085,\"environmental_fee_flat\":5.00,\"environmental_fee_percentage\":0.00}") @map("tax_matrix_json")
   // Zip-code based tax engine (Issue #113)
-  shopZipCode        String?            // Shop zip code for district-level tax lookup
-  partsTaxRate       Float              @default(0.085)
-  laborTaxRate       Float              @default(0.0)
+  shopZipCode        String?  @map("shop_zip_code") // Shop zip code for district-level tax lookup
+  partsTaxRate       Float    @default(0.085) @map("parts_tax_rate")
+  laborTaxRate       Float    @default(0.0) @map("labor_tax_rate")
   // Predictive Retention Engine (Issue #137)
-  autoRetentionEnabled Boolean          @default(true)
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  autoRetentionEnabled Boolean @default(true) @map("auto_retention_enabled")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   clients           Client[]
   vehicles          Vehicle[]
@@ -50,6 +50,8 @@ model Tenant {
   outboundCampaigns OutboundCampaign[]
   consumables       Consumable[]
   warranties        Warranty[]
+
+  @@map("tenants")
 }
 
 enum SubscriptionStatus {
@@ -63,26 +65,26 @@ enum SubscriptionStatus {
 // ---------------------------------------------------------------------------
 model Client {
   id                String   @id @default(cuid())
-  tenantId          String
-  firstName         String
-  lastName          String
+  tenantId          String   @map("tenant_id")
+  firstName         String   @map("first_name")
+  lastName          String   @map("last_name")
   email             String?
   phone             String
-  zipCode           String?  // ZIP code used for drive-time padding calculations
-  isCommercialFleet Boolean  @default(false) // true for small-business fleet accounts
+  zipCode           String?  @map("zip_code") // ZIP code used for drive-time padding calculations
+  isCommercialFleet Boolean  @default(false) @map("is_commercial_fleet") // true for small-business fleet accounts
   // RBAC: Supabase Auth UID for the FLEET_CLIENT portal user (Issue #59)
-  clientUserId      String?
+  clientUserId      String?  @map("client_user_id")
   // Twilio compliance: opt-out flag set when client replies STOP (Issue #138)
   opted_out_sms     Boolean  @default(false)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
-  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  vehicles   Vehicle[]
-  workOrders WorkOrder[]
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vehicles          Vehicle[]
   outboundCampaigns OutboundCampaign[]
 
   @@index([tenantId])
+  @@map("clients")
 }
 
 // ---------------------------------------------------------------------------
@@ -93,44 +95,46 @@ model GlobalVehicle {
   id                      String   @id @default(cuid())
   make                    String
   model                   String
-  yearStart               Int
+  yearStart               Int      @map("year")
   yearEnd                 Int?
   // JSON array of MaintenanceItem: { service, intervalMiles?, atMileage? }
-  maintenanceScheduleJson Json     @default("[]")
+  maintenanceScheduleJson Json     @default("[]") @map("maintenance_schedule_json")
   // Fluid capacity & OEM oil weight (Issue #41)
-  oilCapacityQts          Float?   // Engine oil capacity in US quarts
-  oilWeightOem            String?  // e.g. "0W-20 Full Synthetic"
+  oilCapacityQts          Float?   @map("oil_capacity_qts") // Engine oil capacity in US quarts
+  oilWeightOem            String?  @map("oil_weight_oem")   // e.g. "0W-20 Full Synthetic"
   // Array of trim/engine combos when VIN returns multiple possibilities
-  submodelOptionsJson     Json     @default("[]")
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  submodelOptionsJson     Json     @default("[]") @map("submodel_options_json")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
 
   vehicles Vehicle[]
 
   @@unique([make, model, yearStart])
   @@index([make, model])
+  @@map("global_vehicles")
 }
 
 // ---------------------------------------------------------------------------
-// Vehicle – belongs to a Client and a Tenant (TenantVehicles).
+// Vehicle – belongs to a Client and a Tenant (tenant_vehicles).
 // Optionally linked to a GlobalVehicle row for OEM maintenance data.
+// make/model/year are denormalised from GlobalVehicle for fast lookups.
 // ---------------------------------------------------------------------------
 model Vehicle {
   id              String   @id @default(cuid())
-  tenantId        String
-  clientId        String
-  globalVehicleId String?
-  make            String
-  model           String
-  year            Int
+  tenantId        String   @map("tenant_id")
+  clientId        String   @map("client_id")
+  globalVehicleId String?  @map("global_vehicle_id")
+  make            String?
+  model           String?
+  year            Int?
   vin             String?
-  plate           String?
+  plate           String?  @map("license_plate")
   color           String?
-  mileageIn       Int?     // Current odometer reading entered by shop
-  oilType         String?  // e.g. "5W-30 Full Synthetic"
-  tireSize        String?  // e.g. "225/55R17"
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  mileageIn       Int?     @map("mileage") // Current odometer reading entered by shop
+  oilType         String?  @map("oil_type")  // e.g. "5W-30 Full Synthetic"
+  tireSize        String?  @map("tire_size") // e.g. "225/55R17"
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   client        Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -139,61 +143,62 @@ model Vehicle {
 
   @@index([tenantId])
   @@index([clientId])
+  @@map("tenant_vehicles")
 }
 
 // ---------------------------------------------------------------------------
 // WorkOrder – the core operational record for a job.
+// Client is reached via vehicle.client — there is NO direct clientId FK.
 // ---------------------------------------------------------------------------
 model WorkOrder {
   id            String          @id @default(cuid())
-  tenantId      String
-  clientId      String
-  vehicleId     String
+  tenantId      String          @map("tenant_id")
+  vehicleId     String          @map("tenant_vehicle_id")
   status        WorkOrderStatus @default(INTAKE)
   title         String
   description   String
   notes         String?
-  laborCents    Int             @default(0)
-  partsCents    Int             @default(0)
+  laborCents    Int             @default(0) @map("labor_cents")
+  partsCents    Int             @default(0) @map("parts_cents")
   // Wholesale cost of parts (COGS). When null, a 55% markup ratio is assumed.
-  partsCostCents        Int?
+  partsCostCents        Int?    @map("parts_cost_cents")
   // When true, parts are billed at cost; liability flag shown on Work Order.
-  customerSuppliedParts Boolean  @default(false)
+  customerSuppliedParts Boolean @default(false) @map("customer_supplied_parts")
   // Change-order delta parts (SelectedPart[]) added after initial approval.
-  deltaPartsJson        Json?
+  deltaPartsJson        Json?   @map("delta_parts_json")
   // Token for client to review & sign the delta change order.
-  deltaApprovalToken    String?  @unique
+  deltaApprovalToken    String? @unique @map("delta_approval_token")
   // True once the mandatory pre-inspection walkaround is completed.
-  preCheckComplete      Boolean  @default(false)
-  approvalToken String?         @unique
-  scheduledAt   DateTime?       // Calendar appointment timestamp
-  closedAt      DateTime?
-  paymentMethod String?
+  preCheckComplete      Boolean @default(false) @map("pre_check_complete")
+  approvalToken String?         @unique @map("approval_token")
+  scheduledAt   DateTime?       @map("scheduled_at") // Calendar appointment timestamp
+  closedAt      DateTime?       @map("closed_at")
+  paymentMethod String?         @map("payment_method")
   // Offline Collision & Version Control Lock (Issue #50)
   // Rotated on every server-side write so the sync engine can detect stale offline patches.
-  versionHash   String?         // UUID rotated on each server mutation
-  isLocked      Boolean         @default(false) // true when status is COMPLETE/INVOICED/PAID
+  versionHash   String?         @map("version_hash") // UUID rotated on each server mutation
+  isLocked      Boolean         @default(false) @map("is_locked") // true when status is COMPLETE/INVOICED/PAID
   // Structured labour line-items for tax-matrix calculations (Issue #51 / #52)
   // Shape: LaborLine[] — [{ "description": "Engine removal", "hours": 3.0 }]
-  laborJson     Json?
+  laborJson     Json?           @map("labor_json")
   // Diagnostic-Only intake flow (Issue #53)
-  isDiagnostic       Boolean  @default(false)
-  diagnosticFeeCents Int      @default(0)
-  rollDiagnosticFee  Boolean  @default(false)
+  isDiagnostic       Boolean @default(false) @map("is_diagnostic")
+  diagnosticFeeCents Int     @default(0)     @map("diagnostic_fee_cents")
+  rollDiagnosticFee  Boolean @default(false) @map("roll_diagnostic_fee")
   // RBAC: the FIELD_TECH auth user assigned to this job (Issue #59)
-  assignedTechId     String?
+  assignedTechId     String? @map("assigned_tech_id")
   // QA & Dispatch queue flag — set by tech when pre-existing damage is documented (Issue #62)
-  hasDamageFlag      Boolean  @default(false)
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  hasDamageFlag      Boolean @default(false) @map("has_damage_flag")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  client  Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
   vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([tenantId, scheduledAt])
+  @@map("work_orders")
 }
 
 enum WorkOrderStatus {
@@ -214,22 +219,23 @@ enum WorkOrderStatus {
 // ---------------------------------------------------------------------------
 model OutboundCampaign {
   id           String                 @id @default(cuid())
-  tenantId     String
-  clientId     String?
-  phoneNumber  String?
+  tenantId     String                 @map("tenant_id")
+  clientId     String?                @map("client_id")
+  phoneNumber  String?                @map("phone_number")
   message      String
-  campaignType String                 // "AI_GENERATED" | "BLAST"
+  campaignType String                 @map("campaign_type") // "AI_GENERATED" | "BLAST"
   audience     String?                // Target audience label for blast campaigns
   status       OutboundCampaignStatus @default(QUEUED)
-  sentAt       DateTime?
-  createdAt    DateTime               @default(now())
-  updatedAt    DateTime               @updatedAt
+  sentAt       DateTime?              @map("sent_at")
+  createdAt    DateTime               @default(now()) @map("created_at")
+  updatedAt    DateTime               @updatedAt @map("updated_at")
 
   tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   client Client? @relation(fields: [clientId], references: [id])
 
   @@index([tenantId])
   @@index([tenantId, status])
+  @@map("outbound_campaigns")
 }
 
 enum OutboundCampaignStatus {
@@ -245,18 +251,19 @@ enum OutboundCampaignStatus {
 // ---------------------------------------------------------------------------
 model Consumable {
   id                String   @id @default(cuid())
-  tenantId          String
+  tenantId          String   @map("tenant_id")
   name              String   // e.g. "5W-30 Synthetic", "Brake Cleaner"
   unit              String   // e.g. "Quart", "Can", "Sheet"
-  currentStock      Float    @default(0)  // How many units remain
-  lowStockThreshold Float    @default(5)  // Glow-red warning below this level
-  costPerUnitCents  Int      @default(0)  // Wholesale cost per unit in cents
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  currentStock      Float    @default(0)  @map("current_stock")  // How many units remain
+  lowStockThreshold Float    @default(5)  @map("low_stock_threshold") // Glow-red warning below this level
+  costPerUnitCents  Int      @default(0)  @map("cost_per_unit_cents") // Wholesale cost per unit in cents
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+  @@map("consumables")
 }
 
 // ---------------------------------------------------------------------------
@@ -264,20 +271,21 @@ model Consumable {
 // ---------------------------------------------------------------------------
 model Warranty {
   id              String   @id @default(cuid())
-  tenantId        String
-  workOrderId     String
-  clientId        String?
-  partName        String
-  partNumber      String?
+  tenantId        String   @map("tenant_id")
+  workOrderId     String   @map("work_order_id")
+  clientId        String?  @map("client_id")
+  partName        String   @map("part_name")
+  partNumber      String?  @map("part_number")
   supplier        String?
-  installedAt     DateTime @default(now())
-  warrantyMonths  Int      @default(12)
-  expiresAt       DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  installedAt     DateTime @default(now()) @map("installed_at")
+  warrantyMonths  Int      @default(12) @map("warranty_months")
+  expiresAt       DateTime? @map("expires_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([workOrderId])
+  @@map("warranties")
 }

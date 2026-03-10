@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
   let paidOrders: {
     id: string;
     tenantId: string;
-    client: { firstName: string; phone: string };
+    vehicle: { client: { firstName: string; phone: string } };
     tenant: {
       name: string;
       googlePlaceId: string | null;
@@ -109,7 +109,7 @@ export async function GET(req: NextRequest) {
       select: {
         id: true,
         tenantId: true,
-        client: { select: { firstName: true, phone: true } },
+        vehicle: { select: { client: { select: { firstName: true, phone: true } } } },
         tenant: {
           select: { name: true, googlePlaceId: true, reviewLink: true },
         },
@@ -151,7 +151,7 @@ export async function GET(req: NextRequest) {
     }
 
     // --- Send SMS -----------------------------------------------------------
-    const { firstName, phone } = order.client;
+    const { firstName, phone } = order.vehicle.client;
     const shopName = order.tenant.name;
     const body =
       `Thanks for choosing ${shopName}! If your car is running great, ` +

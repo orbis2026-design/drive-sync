@@ -13,6 +13,7 @@
 
 import { useState, useTransition } from "react";
 import type { FleetWorkOrder, FleetClient } from "./page";
+import { EmptyState } from "@/components/EmptyState";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -131,6 +132,28 @@ export function FleetBillingClient({
   const totalSelected = workOrders
     .filter((wo) => selected.has(wo.id))
     .reduce((sum, wo) => sum + wo.totalCents, 0);
+
+  // No fleet clients yet — show PLG empty state
+  if (clients.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white p-4 sm:p-8">
+        <div className="max-w-5xl mx-auto">
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-white">Fleet Batch Invoicing</h1>
+            <p className="text-gray-400 mt-1 text-sm">
+              Roll up completed fleet WorkOrders into a single consolidated Net-30 Stripe invoice.
+            </p>
+          </div>
+          <EmptyState
+            icon="🚛"
+            title="No fleet clients yet"
+            description="Mark a client as Commercial Fleet to unlock batch invoicing and the fleet dashboard."
+            action={{ label: "Go to Clients", href: "/clients" }}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 sm:p-8">

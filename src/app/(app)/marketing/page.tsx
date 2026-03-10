@@ -1,5 +1,6 @@
 import { fetchQueuedMessages, fetchRetentionQueue } from "./actions";
 import { MarketingClient } from "./MarketingClient";
+import { EmptyState } from "@/components/EmptyState";
 
 // ---------------------------------------------------------------------------
 // Metadata
@@ -34,11 +35,20 @@ export default async function MarketingPage() {
         </p>
       </header>
 
-      <MarketingClient
-        initialMessages={messages}
-        initialError={error}
-        initialRetentionQueue={retentionQueue}
-      />
+      {messages.length === 0 && retentionQueue.length === 0 && !error ? (
+        <EmptyState
+          icon="📣"
+          title="No clients due for service"
+          description="As you complete work orders, DriveSync will automatically track service intervals and surface clients due for their next visit here."
+          action={{ label: "+ New Intake", href: "/intake" }}
+        />
+      ) : (
+        <MarketingClient
+          initialMessages={messages}
+          initialError={error}
+          initialRetentionQueue={retentionQueue}
+        />
+      )}
     </div>
   );
 }

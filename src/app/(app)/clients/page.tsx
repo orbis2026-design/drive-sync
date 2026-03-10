@@ -56,9 +56,9 @@ const fetchClients = unstable_cache(
 
           return {
             id: v.id,
-            make: v.make,
-            model: v.model,
-            year: v.year,
+            make: v.make ?? "",
+            model: v.model ?? "",
+            year: v.year ?? 0,
             vin: v.vin,
             plate: v.plate,
             color: v.color,
