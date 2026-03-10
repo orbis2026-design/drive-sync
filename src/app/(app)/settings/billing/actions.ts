@@ -2,7 +2,7 @@
 
 import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { verifySession } from "@/lib/auth";
+import { verifySession, getSessionUserId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Stripe client (lazy-initialised, server-only)
@@ -41,9 +41,35 @@ export interface SubscriptionDetails {
 // ---------------------------------------------------------------------------
 
 export async function getSubscriptionDetails(): Promise<SubscriptionDetails> {
-  const { tenantId } = await verifySession();
-
   const admin = createAdminClient();
+
+  // Try to get tenantId from the session; for new users without a user_roles
+  // row yet, fall back to a direct tenant lookup by owner_user_id.
+  let tenantId: string | null = null;
+  try {
+    ({ tenantId } = await verifySession());
+  } catch {
+    const userId = await getSessionUserId();
+    if (userId) {
+      const { data: t } = await admin
+        .from("tenants")
+        .select("id")
+        .eq("owner_user_id", userId)
+        .maybeSingle();
+      tenantId = t?.id ?? null;
+    }
+  }
+
+  // No tenant at all — user is brand new, return a safe default.
+  if (!tenantId) {
+    return {
+      subscriptionStatus: "NONE",
+      stripeCustomerId: null,
+      currentPeriodEnd: null,
+      paymentMethodLast4: null,
+      invoices: [],
+    };
+  }
 
   const { data: tenant } = await admin
     .from("tenants")
@@ -188,5 +214,134 @@ export async function createBillingPortalSession(
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return { error: `Could not open billing portal: ${msg}` };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// redeemCodeFromBilling — activate subscription via admin bypass or promo code
+// ---------------------------------------------------------------------------
+
+function generateSlug(email: string): string {
+  const prefix = email.split("@")[0].toLowerCase().replace(/[^a-z0-9]/g, "-");
+  return `${prefix}-${Date.now().toString(36)}`;
+}
+
+export async function redeemCodeFromBilling(
+  code: string,
+): Promise<{ success: boolean; message: string }> {
+  const userId = await getSessionUserId();
+  if (!userId) {
+    return { success: false, message: "You must be signed in to redeem a code." };
+  }
+
+  const admin = createAdminClient();
+
+  // Helper: ensure the user has a tenant row and return the tenant id.
+  // Upserts a user_roles row so verifySession() succeeds afterward.
+  async function activateTenant(
+    featuresJson: Record<string, unknown>,
+  ): Promise<string> {
+    const { data: existing } = await admin
+      .from("tenants")
+      .select("id, features_json")
+      .eq("owner_user_id", userId)
+      .maybeSingle();
+
+    let tenantId: string;
+
+    if (existing) {
+      const merged = {
+        ...((existing.features_json as Record<string, unknown> | null) ?? {}),
+        ...featuresJson,
+      };
+      await admin
+        .from("tenants")
+        .update({ subscription_status: "ACTIVE", features_json: merged })
+        .eq("id", existing.id);
+      tenantId = existing.id;
+    } else {
+      // No tenant yet — fetch user email and create one.
+      const {
+        data: { user },
+      } = await admin.auth.admin.getUserById(userId);
+      const email = user?.email ?? `${userId}@unknown`;
+      const slug = generateSlug(email);
+      const name = email.split("@")[0];
+
+      const { data: created, error: createErr } = await admin
+        .from("tenants")
+        .insert({
+          name,
+          slug,
+          owner_user_id: userId,
+          subscription_status: "ACTIVE",
+          features_json: featuresJson,
+        })
+        .select("id")
+        .single();
+
+      if (createErr || !created) {
+        throw new Error(createErr?.message ?? "Failed to create tenant.");
+      }
+      tenantId = created.id;
+    }
+
+    // Upsert user_roles so verifySession() succeeds on the next request.
+    await admin.from("user_roles").upsert(
+      { user_id: userId, role: "SHOP_OWNER", tenant_id: tenantId },
+      { onConflict: "user_id" },
+    );
+
+    return tenantId;
+  }
+
+  // ── Admin bypass ──────────────────────────────────────────────────────────
+  if (code === process.env.ADMIN_BYPASS_CODE) {
+    try {
+      await activateTenant({ tier: "MULTI_VAN" });
+      return { success: true, message: "Subscription activated!" };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unexpected error.";
+      return { success: false, message: msg };
+    }
+  }
+
+  // ── Promo / gift code ─────────────────────────────────────────────────────
+  const { data: promo, error: promoError } = await admin
+    .from("promo_codes")
+    .select("id, discount_percent, applicable_tier, uses, max_uses")
+    .eq("code", code)
+    .maybeSingle();
+
+  if (promoError || !promo) {
+    return { success: false, message: "Invalid code. Please check and try again." };
+  }
+
+  if (promo.uses >= promo.max_uses) {
+    return { success: false, message: "This code has reached its maximum number of uses." };
+  }
+
+  if (promo.discount_percent < 100) {
+    return {
+      success: false,
+      message: "Partial discounts require Stripe. Full integration coming soon.",
+    };
+  }
+
+  // 100% off — activate without Stripe.
+  try {
+    const tier: string = (promo.applicable_tier as string | null) ?? "MULTI_VAN";
+    await activateTenant({ tier });
+
+    // Increment usage count.
+    await admin
+      .from("promo_codes")
+      .update({ uses: promo.uses + 1 })
+      .eq("id", promo.id);
+
+    return { success: true, message: "Subscription activated!" };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unexpected error.";
+    return { success: false, message: msg };
   }
 }

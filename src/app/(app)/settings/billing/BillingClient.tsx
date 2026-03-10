@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   createBillingPortalSession,
+  redeemCodeFromBilling,
 } from "./actions";
 import type { SubscriptionDetails } from "./actions";
 
@@ -59,9 +61,12 @@ export default function BillingClient({
 }: {
   initial: SubscriptionDetails;
 }) {
-  const [details] = useState<SubscriptionDetails>(initial);
+  const router = useRouter();
+  const [details, setDetails] = useState<SubscriptionDetails>(initial);
   const [isPending, startTransition] = useTransition();
   const [toast, setToast] = useState<string | null>(null);
+  const [accessCode, setAccessCode] = useState("");
+  const [isRedeeming, startRedeemTransition] = useTransition();
 
   function showToast(msg: string) {
     setToast(msg);
@@ -77,6 +82,20 @@ export default function BillingClient({
         showToast(res.error);
       } else {
         window.location.href = res.url;
+      }
+    });
+  }
+
+  function handleRedeem() {
+    const trimmed = accessCode.trim();
+    if (!trimmed) return;
+    startRedeemTransition(async () => {
+      const res = await redeemCodeFromBilling(trimmed);
+      showToast(res.message);
+      if (res.success) {
+        setDetails((prev) => ({ ...prev, subscriptionStatus: "ACTIVE" }));
+        setAccessCode("");
+        router.refresh();
       }
     });
   }
@@ -160,6 +179,35 @@ export default function BillingClient({
             Billing is managed securely via Stripe. You can cancel anytime.
           </p>
         </div>
+
+        {/* Access Code — visible only when not yet active */}
+        {details.subscriptionStatus !== "ACTIVE" && (
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+            <h3 className="font-semibold text-sm text-gray-300 mb-1">
+              Have an access code?
+            </h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Enter an admin bypass or gift/promo code to activate your subscription instantly.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={accessCode}
+                onChange={(e) => setAccessCode(e.target.value)}
+                placeholder="Admin or gift code"
+                disabled={isRedeeming}
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-gray-500 disabled:opacity-50"
+              />
+              <button
+                onClick={handleRedeem}
+                disabled={isRedeeming || !accessCode.trim()}
+                className="bg-brand-400 hover:bg-brand-300 text-black font-bold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-50 text-sm whitespace-nowrap"
+              >
+                {isRedeeming ? "Redeeming…" : "Redeem"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Billing details */}
         {details.stripeCustomerId && (
