@@ -3,7 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
 import { sendSMS } from "@/lib/twilio";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { verifySession } from "@/lib/auth";
 import { TAX_RATE, DEFAULT_SHOP_RATE_CENTS } from "./constants";
 import { getDueServices, type DueService, formatMilesUntilDue } from "@/lib/predictive-service";
@@ -699,11 +699,11 @@ export async function submitChangeOrder(
   }
 
   revalidatePath("/jobs");
+  revalidateTag("jobs", {});
   return { success: true, portalUrl };
 }
 
 /**
- * Persists a supplemental ("broken bolt") change order raised mid-repair.
  *
  *   1. Validates delta parts and labour additions with Zod.
  *   2. Merges them into a single `deltaPartsJson` blob.
@@ -830,5 +830,6 @@ export async function submitSupplementalChangeOrder(
   }
 
   revalidatePath("/jobs");
+  revalidateTag("jobs", {});
   return { success: true, portalUrl };
 }

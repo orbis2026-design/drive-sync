@@ -2,7 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
 import { verifySession } from "@/lib/auth";
 
@@ -315,5 +315,6 @@ export async function processPayment(
   }
 
   revalidatePath("/jobs");
+  revalidateTag("jobs", {});
   return { success: true, closedAt: closedAt.toISOString() };
 }

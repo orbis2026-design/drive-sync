@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag, unstable_cache } from "next/cache";
 import { verifySession } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
@@ -19,6 +19,31 @@ export type ConsumableRow = {
 };
 
 // ---------------------------------------------------------------------------
+// getCachedConsumables — unstable_cache wrapper for the Prisma query
+// ---------------------------------------------------------------------------
+
+const getCachedConsumables = unstable_cache(
+  async (tenantId: string): Promise<ConsumableRow[]> => {
+    const rows = await prisma.consumable.findMany({
+      where: { tenantId },
+      orderBy: { name: "asc" },
+    });
+
+    return rows.map((r: (typeof rows)[number]) => ({
+      id: r.id,
+      name: r.name,
+      unit: r.unit,
+      currentStock: r.currentStock,
+      lowStockThreshold: r.lowStockThreshold,
+      costPerUnitCents: r.costPerUnitCents,
+      isLow: r.currentStock < r.lowStockThreshold,
+    }));
+  },
+  ["consumables"],
+  { revalidate: 60, tags: ["inventory"] },
+);
+
+// ---------------------------------------------------------------------------
 // fetchConsumables
 // ---------------------------------------------------------------------------
 
@@ -28,21 +53,7 @@ export async function fetchConsumables(): Promise<
   const { tenantId } = await verifySession();
 
   try {
-    const rows = await prisma.consumable.findMany({
-      where: { tenantId },
-      orderBy: { name: "asc" },
-    });
-
-    const data: ConsumableRow[] = rows.map((r: (typeof rows)[number]) => ({
-      id: r.id,
-      name: r.name,
-      unit: r.unit,
-      currentStock: r.currentStock,
-      lowStockThreshold: r.lowStockThreshold,
-      costPerUnitCents: r.costPerUnitCents,
-      isLow: r.currentStock < r.lowStockThreshold,
-    }));
-
+    const data = await getCachedConsumables(tenantId);
     return { data };
   } catch (err) {
     const message =
@@ -87,6 +98,7 @@ export async function restockConsumable(
   }
 
   revalidatePath("/inventory");
+  revalidateTag("inventory", {});
   return { success: true };
 }
 
@@ -117,6 +129,7 @@ export async function createConsumable(payload: {
       select: { id: true },
     });
     revalidatePath("/inventory");
+    revalidateTag("inventory", {});
     return { success: true, id: row.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Database error.";

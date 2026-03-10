@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerClient } from "@/lib/supabase/server";
 import { CommandPaletteProvider } from "@/components/command-palette";
@@ -21,21 +22,23 @@ import {
 /** Path that is always accessible, even when the subscription is past due. */
 const BILLING_PATH = "/settings/billing";
 
-async function getSubscriptionStatus(): Promise<string | null> {
-  const tenantId = await getTenantId();
-  if (!tenantId) return null;
-  try {
-    const admin = createAdminClient();
-    const { data } = await admin
-      .from("tenants")
-      .select("subscription_status")
-      .eq("id", tenantId)
-      .single();
-    return data?.subscription_status ?? null;
-  } catch {
-    return null;
-  }
-}
+const getSubscriptionStatus = unstable_cache(
+  async (tenantId: string): Promise<string | null> => {
+    try {
+      const admin = createAdminClient();
+      const { data } = await admin
+        .from("tenants")
+        .select("subscription_status")
+        .eq("id", tenantId)
+        .single();
+      return data?.subscription_status ?? null;
+    } catch {
+      return null;
+    }
+  },
+  ["subscription-status"],
+  { revalidate: 300, tags: ["tenant-subscription"] },
+);
 
 // ---------------------------------------------------------------------------
 // Role resolution — returns the authenticated user's role
@@ -80,7 +83,8 @@ export default async function AppLayout({
 
   // Allow the billing page to always render (prevents redirect loop).
   if (!pathname.startsWith(BILLING_PATH)) {
-    const status = await getSubscriptionStatus();
+    const tenantId = await getTenantId();
+    const status = tenantId ? await getSubscriptionStatus(tenantId) : null;
 
     if (status === "PAST_DUE") {
       redirect(BILLING_PATH);

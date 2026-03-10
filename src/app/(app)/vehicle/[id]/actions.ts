@@ -1,7 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { verifySession } from "@/lib/auth";
 import type { QuickSpecsKitItem } from "@/lib/parts-catalog";
 
@@ -96,5 +96,6 @@ export async function addQuickSpecsKitToWorkOrder(
   }
 
   revalidatePath("/jobs");
+  revalidateTag("jobs", {});
   return {};
 }
