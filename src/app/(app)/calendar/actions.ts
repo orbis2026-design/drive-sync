@@ -162,11 +162,16 @@ export async function scheduleWorkOrder(
     return { error: "Invalid date." };
   }
 
+  const { tenantId } = await verifySession();
+
   try {
-    await prisma.workOrder.update({
-      where: { id: workOrderId },
+    const result = await prisma.workOrder.updateMany({
+      where: { id: workOrderId, tenantId },
       data: { scheduledAt: date },
     });
+    if (result.count === 0) {
+      return { error: "Work order not found." };
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Database error.";
     return { error: message };
@@ -188,11 +193,16 @@ export async function unscheduleWorkOrder(
     return { error: "Missing work order ID." };
   }
 
+  const { tenantId } = await verifySession();
+
   try {
-    await prisma.workOrder.update({
-      where: { id: workOrderId },
+    const result = await prisma.workOrder.updateMany({
+      where: { id: workOrderId, tenantId },
       data: { scheduledAt: null },
     });
+    if (result.count === 0) {
+      return { error: "Work order not found." };
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Database error.";
     return { error: message };
@@ -221,15 +231,18 @@ export async function cancelWorkOrder(
   const { tenantId } = await verifySession();
 
   try {
-    // 1. Cancel the target work order and clear its slot
-    await prisma.workOrder.update({
-      where: { id: workOrderId },
+    // 0. Cancel the target work order (compound where ensures tenant ownership)
+    const cancelled = await prisma.workOrder.updateMany({
+      where: { id: workOrderId, tenantId },
       // CANCELLED is added in migration 20260308300000
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       data: { status: "CANCELLED" as any, scheduledAt: null },
     });
+    if (cancelled.count === 0) {
+      return { error: "Work order not found." };
+    }
 
-    // 2. Find the next scheduled job for this tenant (soonest future scheduledAt)
+    // 1. Find the next scheduled job for this tenant (soonest future scheduledAt)
     const nextRaw = await prisma.workOrder.findFirst({
       where: {
         tenantId,

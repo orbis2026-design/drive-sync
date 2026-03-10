@@ -3,7 +3,7 @@
 import { createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decodeVinWithNhtsa } from "@/lib/api-adapters/nhtsa";
-import { getTenantId } from "@/lib/auth";
+import { getTenantId, getSessionUserId } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,6 +59,11 @@ export interface DecodeVinError {
 export async function decodeVin(
   vin: string,
 ): Promise<DecodeVinResult | DecodeVinError> {
+  const userId = await getSessionUserId();
+  if (!userId) {
+    return { error: "Authentication required." };
+  }
+
   // ── Basic VIN validation ──────────────────────────────────────────────────
   const cleaned = vin.trim().toUpperCase();
   if (cleaned.length !== 17) {
