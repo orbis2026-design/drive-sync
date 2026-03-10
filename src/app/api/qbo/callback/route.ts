@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantId } from "@/lib/auth";
+import { logger } from "@/lib/logger";
 
 const QBO_CLIENT_ID = process.env.QBO_CLIENT_ID ?? "";
 const QBO_CLIENT_SECRET = process.env.QBO_CLIENT_SECRET ?? "";
@@ -81,7 +82,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   // Handle user-denied or error cases
   if (error) {
-    console.error("[qbo/callback] OAuth error:", error);
+    logger.error("OAuth error", { service: "quickbooks" }, error);
     return NextResponse.redirect(
       new URL(
         `/accounting/qbo?error=${encodeURIComponent(error)}`,
@@ -127,7 +128,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .eq("id", tenantId);
 
     if (dbError) {
-      console.error("[qbo/callback] Failed to store tokens:", dbError);
+      logger.error("Failed to store OAuth tokens", { service: "quickbooks", tenantId }, dbError);
       return NextResponse.redirect(
         new URL("/accounting/qbo?error=db_write_failed", req.url),
       );
@@ -139,7 +140,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
-    console.error("[qbo/callback] Error:", msg);
+    logger.error("OAuth callback failed", { service: "quickbooks" }, err);
     return NextResponse.redirect(
       new URL(
         `/accounting/qbo?error=${encodeURIComponent(msg)}`,

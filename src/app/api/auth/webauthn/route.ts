@@ -32,6 +32,7 @@ import {
 } from "@simplewebauthn/server";
 import { isoBase64URL } from "@simplewebauthn/server/helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // In-memory challenge store
@@ -150,7 +151,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     .maybeSingle();
 
   if (dbError) {
-    console.error("[webauthn] DB error looking up passkey:", dbError.message);
+    logger.error("DB error looking up passkey", { service: "webauthn" }, dbError);
     return NextResponse.json({ error: "Database error." }, { status: 500 });
   }
 
@@ -200,7 +201,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const result = await verifyAuthenticationResponse(opts);
     verified = result.verified;
   } catch (err) {
-    console.error("[webauthn] Assertion verification failed:", err);
+    logger.error("Assertion verification failed", { service: "webauthn" }, err);
     return NextResponse.json({ verified: false }, { status: 200 });
   }
 
@@ -219,7 +220,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     await admin.auth.admin.getUserById(userId);
 
   if (userError || !userData?.user?.email) {
-    console.error("[webauthn] Failed to fetch user for session:", userError);
+    logger.error("Failed to fetch user for session", { service: "webauthn" }, userError);
     return NextResponse.json(
       { error: "Failed to create session." },
       { status: 500 },
@@ -233,7 +234,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
 
   if (linkError || !linkData?.properties?.hashed_token) {
-    console.error("[webauthn] Failed to generate session link:", linkError);
+    logger.error("Failed to generate session link", { service: "webauthn" }, linkError);
     return NextResponse.json(
       { error: "Failed to create session." },
       { status: 500 },

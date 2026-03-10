@@ -14,6 +14,7 @@
 
 import twilio from "twilio";
 import type { NextRequest } from "next/server";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Singleton client
@@ -90,7 +91,7 @@ export async function sendSMS(
     return { success: true, sid: message.sid };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Twilio SMS delivery failed.";
-    console.error(`[twilio] SMS to ${to} failed:`, message);
+    logger.error("SMS delivery failed", { service: "twilio", recipient: to }, err);
     return { success: false, error: message };
   }
 }
@@ -112,7 +113,7 @@ export async function validateTwilioWebhook(
 ): Promise<boolean> {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   if (!authToken) {
-    console.error("[twilio] TWILIO_AUTH_TOKEN not set — cannot verify webhook.");
+    logger.error("TWILIO_AUTH_TOKEN not set — cannot verify webhook", { service: "twilio" });
     return false;
   }
 

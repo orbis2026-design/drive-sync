@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 
 type VehicleLookupResult =
   | { found: true; make: string; model: string; year: number; oilCapacityQts: number | null; oilWeightOem: string | null; oilFilterPartNote: string }
@@ -39,7 +40,7 @@ const lookupGlobalVehicle = unstable_cache(
         oilFilterPartNote: "See OEM filter lookup",
       };
     } catch (err) {
-      console.error("[public-lookup] DB error:", err);
+      logger.error("Vehicle lookup failed", { service: "lexicon" }, err);
       return { found: false };
     }
   },

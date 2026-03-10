@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { logger } from "@/lib/logger";
 
 const SYSTEM_PROMPT =
   "You are an ASE Certified Master Mechanic. Identify the damaged automotive component in this photo and output a JSON array of recommended repair steps. Each element must be an object with keys: step (number), action (string, max 80 chars), notes (string, max 200 chars), and suggestedParts (string array). Output ONLY valid JSON — no markdown fences, no prose.";
-
 /** Base64 encoding inflates binary data by ~33%, so 14 MB base64 ≈ 10 MB raw */
 const MAX_BASE64_BYTES = 14_000_000;
 
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ repairSteps, workOrderId: workOrderId ?? null });
   } catch (err) {
-    console.error("[api/ai/vision] Error:", err);
+    logger.error("Vision API request failed", { service: "openai" }, err);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
