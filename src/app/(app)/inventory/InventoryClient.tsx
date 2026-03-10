@@ -26,19 +26,21 @@ function ConsumableCard({
   onRestock,
 }: {
   item: ConsumableRow;
-  onRestock: (id: string, qty: number) => void;
+  onRestock: (id: string, qty: number) => Promise<void>;
 }) {
   const [qty, setQty] = useState("");
   const [busy, setBusy] = useState(false);
 
-  function handleRestock(delta: number) {
+  async function handleRestock(delta: number) {
     const amount = delta !== 0 ? delta : parseFloat(qty);
     if (isNaN(amount) || amount === 0) return;
     setBusy(true);
-    onRestock(item.id, amount);
-    setQty("");
-    // Reset busy after a short delay since the parent handles the async work
-    setTimeout(() => setBusy(false), 500);
+    try {
+      await onRestock(item.id, amount);
+      setQty("");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -275,23 +277,26 @@ export function InventoryClient({ initial }: { initial: ConsumableRow[] }) {
       }),
   );
 
-  function handleRestock(id: string, qty: number) {
-    startTransition(async () => {
-      applyOptimisticRestock({ id, delta: qty });
-      const result = await restockConsumable(id, qty);
-      if ("error" in result) {
-        showToast(`Error: ${result.error}`, "error");
-        return;
-      }
-      // Commit the real state so the optimistic value sticks.
-      setItems((prev) =>
-        prev.map((item) => {
-          if (item.id !== id) return item;
-          const newStock = Math.max(0, item.currentStock + qty);
-          return { ...item, currentStock: newStock, isLow: newStock < item.lowStockThreshold };
-        }),
-      );
-      showToast("Stock updated ✓");
+  function handleRestock(id: string, qty: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      startTransition(async () => {
+        applyOptimisticRestock({ id, delta: qty });
+        const result = await restockConsumable(id, qty);
+        if ("error" in result) {
+          showToast(`Error: ${result.error}`, "error");
+        } else {
+          // Commit the real state so the optimistic value sticks.
+          setItems((prev) =>
+            prev.map((item) => {
+              if (item.id !== id) return item;
+              const newStock = Math.max(0, item.currentStock + qty);
+              return { ...item, currentStock: newStock, isLow: newStock < item.lowStockThreshold };
+            }),
+          );
+          showToast("Stock updated ✓");
+        }
+        resolve();
+      });
     });
   }
 
