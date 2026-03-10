@@ -139,10 +139,10 @@ export const getUserRole = cache(async (userId: string): Promise<UserRoleRow | n
 // Returns { userId, tenantId } on success.
 // ---------------------------------------------------------------------------
 
-export async function verifySession(): Promise<{
+export const verifySession = cache(async (): Promise<{
   userId: string;
   tenantId: string;
-}> {
+}> => {
   const userId = await getSessionUserId();
   if (!userId) throw new Error("UNAUTHORIZED");
 
@@ -150,7 +150,7 @@ export async function verifySession(): Promise<{
   if (!row?.tenantId) throw new Error("UNAUTHORIZED");
 
   return { userId, tenantId: row.tenantId };
-}
+});
 
 // ---------------------------------------------------------------------------
 // getTenantId
@@ -160,7 +160,7 @@ export async function verifySession(): Promise<{
 // role assignment (i.e. no tenant).
 // ---------------------------------------------------------------------------
 
-export async function getTenantId(): Promise<string | null> {
+export const getTenantId = cache(async (): Promise<string | null> => {
   try {
     const userId = await getSessionUserId();
     if (!userId) return null;
@@ -169,7 +169,7 @@ export async function getTenantId(): Promise<string | null> {
   } catch {
     return null;
   }
-}
+});
 
 // ---------------------------------------------------------------------------
 // getFleetClientId
