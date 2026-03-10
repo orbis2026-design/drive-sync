@@ -86,7 +86,7 @@ async function fetchCompletedWorkOrders(
 
     return (rows as WoRow[]).map((wo) => {
       const plate = wo.vehicle.plate ? `Van ${wo.vehicle.plate}` : "Van";
-      const vehicleLabel = `${plate} — ${wo.vehicle.year ?? ""} ${wo.vehicle.make ?? ""} ${wo.vehicle.model ?? ""}`.trim();
+      const vehicleLabel = `${plate} — ${wo.vehicle.year ?? 0} ${wo.vehicle.make ?? ""} ${wo.vehicle.model ?? ""}`.trim();
       return {
         id: wo.id,
         title: wo.title,

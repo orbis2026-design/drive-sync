@@ -333,7 +333,7 @@ export function ClientSearchStep({ onClientSelected }: ClientSearchStepProps) {
                   <p className="text-xs text-gray-400">{client.phone}</p>
                   {client.vehicles[0] && (
                     <p className="text-xs text-gray-500 mt-0.5">
-                      {[client.vehicles[0].year, client.vehicles[0].make, client.vehicles[0].model].filter(Boolean).join(" ")}
+                      {[client.vehicles[0].year, client.vehicles[0].make, client.vehicles[0].model].filter((v) => v != null).join(" ")}
                     </p>
                   )}
                 </div>
