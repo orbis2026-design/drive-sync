@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import * as XLSX from "xlsx";
 import type { MonthlyReport } from "./actions";
 import { fetchMonthlyReport } from "./actions";
 
@@ -83,15 +84,91 @@ function buildCSV(report: MonthlyReport): string {
     .join("\n");
 }
 
-function downloadCSV(report: MonthlyReport): void {
+const UTF8_BOM = "\uFEFF";
+
+function downloadCSV(report: MonthlyReport, excelFriendly: boolean): void {
   const csv = buildCSV(report);
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const content = excelFriendly ? UTF8_BOM + csv : csv;
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = `drivesync-${report.year}-${report.month.toString().padStart(2, "0")}-ledger.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Builds the same ledger rows as buildCSV for use in .xlsx export.
+ */
+function buildLedgerRows(report: MonthlyReport): string[][] {
+  const { monthLabel, year, month } = report;
+  const lastDay = new Date(year, month, 0).getDate();
+  const date = `${month.toString().padStart(2, "0")}/${lastDay}/${year}`;
+
+  function cents(c: number): string {
+    return (c / 100).toFixed(2);
+  }
+
+  const rows: string[][] = [
+    ["Date", "Description", "Account", "Debit", "Credit", "Memo"],
+    [
+      date,
+      `Labor Revenue — ${monthLabel}`,
+      "4000 · Labor Revenue",
+      "",
+      cents(report.totalLaborRevenueCents),
+      `${report.jobCount} jobs closed`,
+    ],
+    [
+      date,
+      `Parts Revenue — ${monthLabel}`,
+      "4100 · Parts Revenue",
+      "",
+      cents(report.totalPartsRevenueCents),
+      "Taxable parts sales",
+    ],
+    [
+      date,
+      `Sales Tax Collected — ${monthLabel}`,
+      "2200 · Sales Tax Payable",
+      "",
+      cents(report.totalSalesTaxCollectedCents),
+      "Tax due to state",
+    ],
+    [
+      date,
+      `Parts COGS — ${monthLabel}`,
+      "5000 · Cost of Goods Sold",
+      cents(report.partsCOGSCents),
+      "",
+      "Wholesale parts cost",
+    ],
+  ];
+
+  if (report.totalStripeFeesCents > 0) {
+    rows.push([
+      date,
+      `Card Processing Fees — ${monthLabel}`,
+      "6400 · Merchant Service Fees",
+      cents(report.totalStripeFeesCents),
+      "",
+      "~2.9% + $0.30 / txn",
+    ]);
+  }
+
+  return rows;
+}
+
+function downloadExcel(report: MonthlyReport): void {
+  const rows = buildLedgerRows(report);
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, report.monthLabel.slice(0, 31));
+  XLSX.writeFile(
+    wb,
+    `drivesync-${report.year}-${report.month.toString().padStart(2, "0")}-ledger.xlsx`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -283,20 +360,31 @@ export function AccountingClient({
             )}
           </div>
 
-          {/* Download button */}
-          <button
-            onClick={() => downloadCSV(report)}
-            className="w-full py-5 rounded-3xl font-black text-lg tracking-tight transition-colors"
-            style={{
-              background: "linear-gradient(135deg, #16a34a, #22c55e)",
-              color: "#052e16",
-            }}
-          >
-            ⬇ Download Month-End CSV
-            <span className="block text-xs font-mono font-normal opacity-70 mt-0.5">
-              QuickBooks Ledger · {report.monthLabel}
-            </span>
-          </button>
+          {/* Download buttons */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              onClick={() => downloadCSV(report, true)}
+              className="w-full py-5 rounded-3xl font-black text-lg tracking-tight transition-colors"
+              style={{
+                background: "linear-gradient(135deg, #16a34a, #22c55e)",
+                color: "#052e16",
+              }}
+            >
+              ⬇ CSV (QuickBooks Ledger)
+              <span className="block text-xs font-mono font-normal opacity-70 mt-0.5">
+                Excel-compatible · {report.monthLabel}
+              </span>
+            </button>
+            <button
+              onClick={() => downloadExcel(report)}
+              className="w-full py-5 rounded-3xl font-black text-lg tracking-tight transition-colors border-2 border-gray-600 hover:border-gray-500 bg-gray-900 text-white"
+            >
+              ⬇ Excel (.xlsx)
+              <span className="block text-xs font-mono font-normal opacity-70 mt-0.5">
+                Native Excel format · {report.monthLabel}
+              </span>
+            </button>
+          </div>
         </>
       )}
 

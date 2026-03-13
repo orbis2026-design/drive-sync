@@ -11,7 +11,6 @@
  *                           session cookie (Next.js Server Component context)
  */
 
-import { cache } from "react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerClient } from "@/lib/supabase/server";
 
@@ -35,7 +34,7 @@ export type UserRoleRow = {
 // Returns null when no valid session is present.
 // ---------------------------------------------------------------------------
 
-export const getSessionUserId = cache(async (): Promise<string | null> => {
+export async function getSessionUserId(): Promise<string | null> {
   try {
     const client = await createServerClient();
     const {
@@ -45,7 +44,7 @@ export const getSessionUserId = cache(async (): Promise<string | null> => {
   } catch {
     return null;
   }
-});
+}
 
 // ---------------------------------------------------------------------------
 // getUserRole
@@ -56,7 +55,7 @@ export const getSessionUserId = cache(async (): Promise<string | null> => {
 // Returns null if the user has no role assignment.
 // ---------------------------------------------------------------------------
 
-export const getUserRole = cache(async (userId: string): Promise<UserRoleRow | null> => {
+export async function getUserRole(userId: string): Promise<UserRoleRow | null> {
   try {
     const admin = createAdminClient();
     const { data, error } = await admin
@@ -75,7 +74,7 @@ export const getUserRole = cache(async (userId: string): Promise<UserRoleRow | n
   } catch {
     return null;
   }
-});
+}
 
 // ---------------------------------------------------------------------------
 // verifySession
@@ -85,10 +84,10 @@ export const getUserRole = cache(async (userId: string): Promise<UserRoleRow | n
 // Returns { userId, tenantId } on success.
 // ---------------------------------------------------------------------------
 
-export const verifySession = cache(async (): Promise<{
+export async function verifySession(): Promise<{
   userId: string;
   tenantId: string;
-}> => {
+}> {
   const userId = await getSessionUserId();
   if (!userId) throw new Error("UNAUTHORIZED");
 
@@ -96,7 +95,7 @@ export const verifySession = cache(async (): Promise<{
   if (!row?.tenantId) throw new Error("UNAUTHORIZED");
 
   return { userId, tenantId: row.tenantId };
-});
+}
 
 // ---------------------------------------------------------------------------
 // getTenantId
@@ -106,7 +105,7 @@ export const verifySession = cache(async (): Promise<{
 // role assignment (i.e. no tenant).
 // ---------------------------------------------------------------------------
 
-export const getTenantId = cache(async (): Promise<string | null> => {
+export async function getTenantId(): Promise<string | null> {
   try {
     const userId = await getSessionUserId();
     if (!userId) return null;
@@ -115,7 +114,7 @@ export const getTenantId = cache(async (): Promise<string | null> => {
   } catch {
     return null;
   }
-});
+}
 
 // ---------------------------------------------------------------------------
 // getFleetClientId

@@ -11,6 +11,11 @@ import {
   type DeliveryType,
 } from "@/lib/supplier-api";
 import { verifySession } from "@/lib/auth";
+import {
+  ensurePrimaryLocation,
+  restockFromPurchaseOrder,
+  upsertPartForTenant,
+} from "@/lib/inventory/stock";
 import type { ActiveWorkOrderSummary } from "./schemas";
 
 /**
@@ -40,7 +45,7 @@ export async function fetchActiveWorkOrders(): Promise<
       },
     });
 
-    const vehicleIds = rows.map((row) => row.vehicleId);
+    const vehicleIds = rows.map((r) => r.vehicleId);
     const vehicles = await prisma.vehicle.findMany({
       where: { id: { in: vehicleIds } },
       select: { id: true, year: true, make: true, model: true, vin: true },
@@ -142,8 +147,64 @@ export async function executePurchaseOrder(
   if (!lines || lines.length === 0) {
     return { error: "Purchase order must have at least one line item." };
   }
+
+  const { tenantId } = await verifySession();
+
   try {
     const result = await createPurchaseOrder(lines, deliveryType);
+
+    // Persist to local inventory domain.
+    const vendor = await prisma.vendor.upsert({
+      where: {
+        tenantId_name: {
+          tenantId,
+          name: "Primary Supplier",
+        },
+      },
+      update: {},
+      create: {
+        tenantId,
+        name: "Primary Supplier",
+      },
+    });
+
+    const purchaseOrder = await prisma.purchaseOrder.create({
+      data: {
+        tenantId,
+        vendorId: vendor.id,
+        supplierPoNumber: result.poNumber,
+        status: result.status,
+        deliveryType,
+        estimatedReadyAt: new Date(result.estimatedReadyAt),
+      },
+    });
+
+    // Ensure there is at least a primary location for future receiving.
+    await ensurePrimaryLocation(tenantId);
+
+    for (const line of lines) {
+      const partNumber = line.partNumber;
+      const description = line.partNumber;
+
+      const part = await upsertPartForTenant({
+        tenantId,
+        partNumber,
+        name: description,
+      });
+
+      await prisma.purchaseOrderLine.create({
+        data: {
+          tenantId,
+          purchaseOrderId: purchaseOrder.id,
+          partId: part.id,
+          partNumber: line.partNumber,
+          description,
+          qty: line.qty,
+          wholesalePriceCents: line.wholesalePriceCents,
+        },
+      });
+    }
+
     return {
       poNumber: result.poNumber,
       status: result.status,
@@ -153,4 +214,40 @@ export async function executePurchaseOrder(
     const msg = err instanceof Error ? err.message : "Unknown error";
     return { error: `Purchase order failed: ${msg}` };
   }
+}
+
+// ---------------------------------------------------------------------------
+// receivePurchaseOrder — marks a PO as received and restocks inventory
+// ---------------------------------------------------------------------------
+
+export async function receivePurchaseOrder(
+  purchaseOrderId: string,
+  locationId?: string,
+): Promise<{ success: true } | { error: string }> {
+  if (!purchaseOrderId) {
+    return { error: "Missing purchase order ID." };
+  }
+
+  const { tenantId } = await verifySession();
+
+  const po = await prisma.purchaseOrder.findFirst({
+    where: { id: purchaseOrderId, tenantId },
+    select: { id: true },
+  });
+
+  if (!po) {
+    return { error: "Purchase order not found." };
+  }
+
+  const result = await restockFromPurchaseOrder({
+    tenantId,
+    purchaseOrderId: po.id,
+    locationId,
+  });
+
+  if ("error" in result) {
+    return result;
+  }
+
+  return { success: true };
 }

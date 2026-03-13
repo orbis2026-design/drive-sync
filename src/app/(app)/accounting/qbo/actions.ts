@@ -3,7 +3,8 @@
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
+import { verifySession, getUserRole } from "@/lib/auth";
+import { decryptToken } from "@/lib/qbo-token-cipher";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -70,13 +71,18 @@ export async function getQboStatus(): Promise<QboStatus> {
     return { connected: false, realmId: null, companyName: null };
   }
 
+  const accessToken = decryptToken(tenant.qbo_access_token);
+  if (!accessToken) {
+    return { connected: false, realmId: null, companyName: null };
+  }
+
   // Optionally fetch company name from QBO
   try {
     const companyRes = await fetch(
       `${QBO_API_BASE}/v3/company/${tenant.qbo_realm_id}/companyinfo/${tenant.qbo_realm_id}`,
       {
         headers: {
-          Authorization: `Bearer ${tenant.qbo_access_token}`,
+          Authorization: `Bearer ${accessToken}`,
           Accept: "application/json",
         },
       },
@@ -101,8 +107,19 @@ export async function getQboStatus(): Promise<QboStatus> {
 // ---------------------------------------------------------------------------
 
 export async function getQboOAuthUrl(): Promise<{ url: string }> {
-  await verifySession();
+  const { tenantId } = await verifySession();
   const state = crypto.randomUUID();
+
+  const admin = createAdminClient();
+  const { error: insertError } = await admin.from("qbo_oauth_state").insert({
+    state,
+    tenant_id: tenantId,
+  });
+
+  if (insertError) {
+    throw new Error("Failed to store OAuth state. Try again.");
+  }
+
   const params = new URLSearchParams({
     client_id: QBO_CLIENT_ID,
     redirect_uri: QBO_REDIRECT_URI,
@@ -161,6 +178,11 @@ export async function getQboChartOfAccounts(): Promise<
     return { error: "QuickBooks is not connected. Connect via Settings → Integrations." };
   }
 
+  const accessToken = decryptToken(tenant.qbo_access_token);
+  if (!accessToken) {
+    return { error: "QuickBooks is not connected. Connect via Settings → Integrations." };
+  }
+
   try {
     const query = encodeURIComponent(
       "SELECT * FROM Account WHERE AccountType IN ('Income', 'Other Current Liability') MAXRESULTS 50",
@@ -169,7 +191,7 @@ export async function getQboChartOfAccounts(): Promise<
       `${QBO_API_BASE}/v3/company/${tenant.qbo_realm_id}/query?query=${query}`,
       {
         headers: {
-          Authorization: `Bearer ${tenant.qbo_access_token}`,
+          Authorization: `Bearer ${accessToken}`,
           Accept: "application/json",
         },
       },
@@ -208,7 +230,12 @@ export async function syncPaidWorkOrders(
     return { error: "Please map at least Labor and Parts accounts before syncing." };
   }
 
-  const { tenantId } = await verifySession();
+  const { tenantId, userId } = await verifySession();
+
+  const roleRow = await getUserRole(userId);
+  if (roleRow?.role !== "SHOP_OWNER") {
+    return { error: "Only shop owners can sync to QuickBooks." };
+  }
 
   const admin = createAdminClient();
   const { data: tenant } = await admin
@@ -217,7 +244,7 @@ export async function syncPaidWorkOrders(
     .eq("id", tenantId)
     .single();
 
-  // Fetch PAID work orders that haven't been synced yet
+  // Fetch PAID work orders that have not yet been synced to QBO (idempotency)
   let workOrders: {
     id: string;
     title: string;
@@ -229,7 +256,11 @@ export async function syncPaidWorkOrders(
 
   try {
     workOrders = await prisma.workOrder.findMany({
-      where: { tenantId, status: "PAID" },
+      where: {
+        tenantId,
+        status: "PAID",
+        qboInvoiceId: null,
+      },
       select: {
         id: true,
         title: true,
@@ -249,6 +280,13 @@ export async function syncPaidWorkOrders(
 
   if (workOrders.length === 0) {
     return { synced: 0, failed: 0, invoiceIds: [] };
+  }
+
+  const accessToken = tenant?.qbo_access_token
+    ? decryptToken(tenant.qbo_access_token)
+    : null;
+  if (!accessToken || !tenant?.qbo_realm_id) {
+    return { error: "QuickBooks is not connected. Cannot create invoices." };
   }
 
   const synced: string[] = [];
@@ -287,17 +325,13 @@ export async function syncPaidWorkOrders(
         : new Date().toISOString().split("T")[0],
     };
 
-    if (!tenant?.qbo_access_token || !tenant?.qbo_realm_id) {
-      return { error: "QuickBooks is not connected. Cannot create invoices." };
-    }
-
     try {
       const res = await fetch(
         `${QBO_API_BASE}/v3/company/${tenant.qbo_realm_id}/invoice`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${tenant.qbo_access_token}`,
+            Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
             Accept: "application/json",
           },
@@ -305,8 +339,17 @@ export async function syncPaidWorkOrders(
         },
       );
       if (res.ok) {
-        const body = await res.json();
-        synced.push(body?.Invoice?.Id ?? wo.id);
+        const body = (await res.json()) as { Invoice?: { Id?: string } };
+        const qboInvoiceId = body?.Invoice?.Id;
+        if (qboInvoiceId) {
+          await prisma.workOrder.update({
+            where: { id: wo.id },
+            data: { qboInvoiceId },
+          });
+          synced.push(qboInvoiceId);
+        } else {
+          failed++;
+        }
       } else {
         failed++;
       }

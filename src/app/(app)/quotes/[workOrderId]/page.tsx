@@ -1,4 +1,4 @@
-import { getQuoteData } from "./actions";
+import { getQuoteDataCached } from "./data";
 import { QuoteBuilderClient } from "./QuoteBuilderClient";
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ export default async function QuotePage({
 }) {
   const { workOrderId } = await params;
 
-  const result = await getQuoteData(workOrderId);
+  const result = await getQuoteDataCached(workOrderId);
 
   if ("error" in result) {
     return <ErrorScreen message={result.error} />;

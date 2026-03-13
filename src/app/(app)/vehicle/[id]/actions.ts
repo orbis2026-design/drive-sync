@@ -96,6 +96,6 @@ export async function addQuickSpecsKitToWorkOrder(
   }
 
   revalidatePath("/jobs");
-  revalidateTag("jobs", {});
+  revalidateTag("jobs", "max");
   return {};
 }

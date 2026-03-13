@@ -6,8 +6,8 @@ import { EmptyState } from "@/components/EmptyState";
 // Metadata
 // ---------------------------------------------------------------------------
 export const metadata = {
-  title: "Financials — DriveSync",
-  description: "Net profit, COGS breakdown, and weekly revenue overview.",
+  title: "Money — Boltbook",
+  description: "Oil-change metrics, revenue, and weekly trends.",
 };
 
 // ---------------------------------------------------------------------------
@@ -86,6 +86,44 @@ export default async function AnalyticsPage() {
       <div className="flex-1 flex flex-col gap-4">
         {data ? (
           <>
+            {/* Owner dashboard: MTD + YTD in one place */}
+            <p className="text-xs text-gray-500 font-mono">
+              Shop owner financial dashboard · MTD and YTD
+            </p>
+
+            {/* Oil-change focus (Boltbook) */}
+            <div className="rounded-3xl bg-gray-900 border border-gray-800 p-5">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
+                Oil-change focus (MTD)
+              </p>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">
+                    Jobs
+                  </p>
+                  <p className="text-2xl font-black text-white tabular-nums">
+                    {data.oilChange.oilChangeCount}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">
+                    Avg ticket
+                  </p>
+                  <p className="text-2xl font-black text-brand-400 tabular-nums">
+                    {formatCents(data.oilChange.avgTicketCents)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">
+                    Add-on rate
+                  </p>
+                  <p className="text-2xl font-black text-emerald-400 tabular-nums">
+                    {data.oilChange.addOnAttachRatePercent}%
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* KPI grid — 2 × 2 on mobile, 4 across on large screens */}
             <div className="grid grid-cols-2 gap-3">
               <MetricBlock
@@ -114,6 +152,22 @@ export default async function AnalyticsPage() {
                     : "text-red-400"
                 }
                 note="Revenue − COGS − Fees"
+              />
+            </div>
+
+            {/* YTD summary — owner overview */}
+            <div className="grid grid-cols-2 gap-3">
+              <MetricBlock
+                label="Revenue YTD"
+                value={formatCents(data.ytd.grossRevenueCents)}
+                accentClass="text-white"
+              />
+              <MetricBlock
+                label="Net Profit YTD"
+                value={formatCents(data.ytd.netProfitCents)}
+                accentClass={
+                  data.ytd.netProfitCents >= 0 ? "text-green-400" : "text-red-400"
+                }
               />
             </div>
 

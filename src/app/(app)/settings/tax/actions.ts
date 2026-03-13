@@ -26,7 +26,7 @@ export async function saveTaxMatrix(
     return { error: message };
   }
 
-  revalidateTag("tenant-tax", {});
+  revalidateTag("tenant-tax", "max");
   revalidatePath("/settings/tax");
   return {};
 }
@@ -72,7 +72,7 @@ export async function saveTaxSettings(params: {
     return { error: message };
   }
 
-  revalidateTag("tenant-tax", {});
+  revalidateTag("tenant-tax", "max");
   revalidatePath("/settings/tax");
   return {};
 }

@@ -2,16 +2,13 @@
 
 import { prisma } from "@/lib/prisma";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
-import { verifySession } from "@/lib/auth";
+import { verifySession, getUserRole } from "@/lib/auth";
+import { isCardPayment, computeCardFeeCents } from "@/lib/payment-fees";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-// Card processing fee approximation — mirrors the same values in analytics/actions.ts.
-// Both should be updated together if the payment processor's rate changes.
-const CARD_FEE_RATE = 0.029;       // 2.9% of transaction total
-const CARD_FEE_FIXED_CENTS = 30;   // $0.30 flat fee per transaction
 const DEFAULT_PARTS_COST_RATIO = 0.55; // Assumed wholesale cost when partsCostCents is null
 
 // ---------------------------------------------------------------------------
@@ -44,7 +41,12 @@ export async function fetchMonthlyReport(
     return { error: "Invalid year or month." };
   }
 
-  const { tenantId } = await verifySession();
+  const { tenantId, userId } = await verifySession();
+
+  const roleRow = await getUserRole(userId);
+  if (roleRow?.role !== "SHOP_OWNER") {
+    return { error: "Only shop owners can view accounting reports." };
+  }
 
   try {
     const start = new Date(year, month - 1, 1);
@@ -80,13 +82,9 @@ export async function fetchMonthlyReport(
 
       const total = subtotal + tax;
 
-      // Card fees only if paid by card
-      if (
-        wo.paymentMethod === "card_tap" ||
-        wo.paymentMethod === "card_manual"
-      ) {
-        totalStripeFeesCents +=
-          Math.round(total * CARD_FEE_RATE) + CARD_FEE_FIXED_CENTS;
+      // Card fees only for card payments (cash/check/null = no fee)
+      if (isCardPayment(wo.paymentMethod)) {
+        totalStripeFeesCents += computeCardFeeCents(total);
       }
 
       const cogs =

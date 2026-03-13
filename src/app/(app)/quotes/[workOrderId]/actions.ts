@@ -36,6 +36,8 @@ export interface SelectedPart {
   /** Retail price (40 % gross margin applied), in US cents. */
   retailPriceCents: number;
   quantity: number;
+  /** When true this line is billed at wholesale (customer-supplied). */
+  customerSupplied?: boolean;
 }
 
 /** Everything the Quote Builder page needs on initial render. */
@@ -61,6 +63,198 @@ export interface LockQuoteParams {
   customerSuppliedParts: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Server Action — updateCustomerSuppliedParts
+// ---------------------------------------------------------------------------
+
+export async function updateCustomerSuppliedParts(
+  workOrderId: string,
+  flags: { partId: string; customerSupplied: boolean }[],
+): Promise<ActionResult> {
+  if (!workOrderId) {
+    return { error: "Missing work order ID." };
+  }
+
+  const { tenantId } = await verifySession();
+
+  // Ensure the work order exists for this tenant.
+  try {
+    const wo = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
+      select: { id: true },
+    });
+    if (!wo) {
+      return { error: "Work order not found." };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Database error.";
+    return { error: message };
+  }
+
+  const parts = await fetchPartsJson(workOrderId);
+  const byId = new Map(flags.map((f) => [f.partId, f.customerSupplied]));
+  const updatedParts: SelectedPart[] = parts.map((p) => ({
+    ...p,
+    customerSupplied: byId.get(p.partId) ?? !!p.customerSupplied,
+  }));
+
+  // Persist updated parts_json.
+  try {
+    const adminDb = createAdminClient();
+    const { error } = await adminDb
+      .from("work_orders")
+      .update({ parts_json: updatedParts })
+      .eq("id", workOrderId)
+      .eq("tenant_id", tenantId);
+
+    if (error) {
+      return { error: `Failed to update parts: ${error.message}` };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to update parts.";
+    return { error: message };
+  }
+
+  // Flip the WorkOrder-wide flag for contracts / warranty text.
+  const anyCustomerSupplied = updatedParts.some((p) => p.customerSupplied);
+  try {
+    await prisma.workOrder.updateMany({
+      where: { id: workOrderId, tenantId },
+      data: { customerSuppliedParts: anyCustomerSupplied },
+    });
+  } catch {
+    // Non-fatal: contracts can still infer from parts_json if needed.
+  }
+
+  revalidatePath("/jobs");
+  revalidateTag("jobs", "max");
+  revalidateTag("work-orders", "max");
+  return {};
+}
+
+// ---------------------------------------------------------------------------
+// Server Action — overrideQuoteTotals (auditable manager control)
+// ---------------------------------------------------------------------------
+
+export async function overrideQuoteTotals(
+  workOrderId: string,
+  params: OverrideQuoteParams,
+): Promise<{ success: true } | { error: string }> {
+  if (!workOrderId) {
+    return { error: "Missing work order ID." };
+  }
+
+  const { userId, tenantId } = await verifySession();
+  const roleRow = await getUserRole(userId);
+  if (roleRow?.role !== "SHOP_OWNER") {
+    return { error: "Only shop owners can override final pricing." };
+  }
+
+  const overrideTotalCents = Math.round(params.overrideTotalCents);
+  if (!Number.isFinite(overrideTotalCents) || overrideTotalCents <= 0) {
+    return { error: "Override total must be a positive amount in cents." };
+  }
+
+  // Fetch current financials.
+  let existing:
+    | {
+        laborCents: number;
+        partsCents: number;
+        status: string;
+      }
+    | null = null;
+  try {
+    existing = await prisma.workOrder.findFirst({
+      where: { id: workOrderId, tenantId },
+      select: {
+        laborCents: true,
+        partsCents: true,
+        status: true,
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Database error.";
+    return { error: message };
+  }
+
+  if (!existing) {
+    return { error: "Work order not found." };
+  }
+
+  // Only allow overrides on locked / pending quotes.
+  if (
+    existing.status !== "ACTIVE" &&
+    existing.status !== "PENDING_APPROVAL"
+  ) {
+    return {
+      error:
+        "Quote must be locked before overriding. Lock the quote, then apply overrides.",
+    };
+  }
+
+  const originalLabor = existing.laborCents;
+  const originalParts = existing.partsCents;
+  const originalSubtotal = originalLabor + originalParts;
+  if (originalSubtotal <= 0) {
+    return {
+      error:
+        "Cannot override pricing when subtotal is zero. Ensure parts and labour are set first.",
+    };
+  }
+  const originalTax = Math.round(originalSubtotal * TAX_RATE);
+  const originalTotal = originalSubtotal + originalTax;
+
+  const targetTotal = overrideTotalCents;
+  const targetSubtotal = Math.round(targetTotal / (1 + TAX_RATE));
+
+  const k = targetSubtotal / originalSubtotal;
+  const newLabor = Math.round(originalLabor * k);
+  const newParts = Math.round(originalParts * k);
+
+  try {
+    await prisma.workOrder.updateMany({
+      where: { id: workOrderId, tenantId },
+      data: {
+        laborCents: newLabor,
+        partsCents: newParts,
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to apply override.";
+    return { error: message };
+  }
+
+  // Log an auditable event on the job timeline.
+  const originalSubtotalDollars = (originalSubtotal / 100).toFixed(2);
+  const originalTotalDollars = (originalTotal / 100).toFixed(2);
+  const newSubtotalDollars = (targetSubtotal / 100).toFixed(2);
+  const newTotalDollars = (targetTotal / 100).toFixed(2);
+  const bodyLines = [
+    `Original subtotal: $${originalSubtotalDollars} (labour $${(
+      originalLabor / 100
+    ).toFixed(2)}, parts $${(originalParts / 100).toFixed(2)})`,
+    `Original total (with tax): $${originalTotalDollars}`,
+    `New subtotal: $${newSubtotalDollars} (labour $${(
+      newLabor / 100
+    ).toFixed(2)}, parts $${(newParts / 100).toFixed(2)})`,
+    `New total (with tax): $${newTotalDollars}`,
+    `Reason: ${params.reason.trim()}`,
+  ].join("\n");
+
+  await createWorkOrderEvent({
+    workOrderId,
+    scope: "WORK_ORDER",
+    kind: "SYSTEM",
+    title: "Manual quote override",
+    body: bodyLines,
+  });
+
+  revalidatePath("/jobs");
+  revalidateTag("jobs", "max");
+  revalidateTag("work-orders", "max");
+  return { success: true };
+}
+
 /** Authoritative quote totals calculated exclusively on the backend. */
 export interface QuoteCalculation {
   partsSubtotalCents: number;
@@ -68,6 +262,11 @@ export interface QuoteCalculation {
   subtotalCents: number;
   taxCents: number;
   totalCents: number;
+}
+
+export interface OverrideQuoteParams {
+  overrideTotalCents: number;
+  reason: string;
 }
 
 /** Everything the Send Quote page needs on initial render. */
@@ -162,20 +361,14 @@ export async function getQuoteData(
 
   const { tenantId } = await verifySession();
 
-  let workOrder: {
-    id: string;
-    title: string;
-    tenantId: string;
-    vehicle: {
-      mileageIn: number | null;
-      globalVehicle: {
-        maintenanceScheduleJson: unknown;
-      } | null;
-      workOrders: {
-        laborJson: unknown;
-      }[];
-    } | null;
-  } | null = null;
+  let workOrder:
+    | {
+        id: string;
+        title: string;
+        tenantId: string;
+        vehicleId: string;
+      }
+    | null = null;
   try {
     workOrder = await prisma.workOrder.findFirst({
       where: { id: workOrderId, tenantId },
@@ -183,20 +376,7 @@ export async function getQuoteData(
         id: true,
         title: true,
         tenantId: true,
-        vehicle: {
-          select: {
-            mileageIn: true,
-            globalVehicle: {
-              select: { maintenanceScheduleJson: true },
-            },
-            // Fetch labor line items from past PAID work orders to filter
-            // out already-completed services (Issue #57).
-            workOrders: {
-              where: { status: "PAID" },
-              select: { laborJson: true },
-            },
-          },
-        },
+        vehicleId: true,
       },
     });
   } catch {
@@ -207,18 +387,41 @@ export async function getQuoteData(
     return { error: "Work order not found." };
   }
 
+  // Fetch vehicle + maintenance context separately.
+  const vehicle = await prisma.vehicle.findFirst({
+    where: { id: workOrder.vehicleId, tenantId },
+    select: {
+      mileageIn: true,
+      globalVehicleId: true,
+    },
+  });
+
   // --- Compute due services (Issue #57) ------------------------------------
   let dueServices: DueService[] = [];
-  const currentMileage = workOrder.vehicle?.mileageIn ?? null;
+  const currentMileage = vehicle?.mileageIn ?? null;
 
-  if (currentMileage !== null && workOrder.vehicle?.globalVehicle) {
-    const rawSchedule = workOrder.vehicle.globalVehicle.maintenanceScheduleJson;
+  if (currentMileage !== null && vehicle?.globalVehicleId) {
+    const global = await prisma.globalVehicle.findFirst({
+      where: { id: vehicle.globalVehicleId },
+      select: { maintenanceScheduleJson: true },
+    });
+
+    const rawSchedule = global?.maintenanceScheduleJson;
     const scheduleResult = MaintenanceScheduleSchema.safeParse(rawSchedule);
 
     if (scheduleResult.success) {
       // Build the set of completed task names from past PAID WorkOrders.
+      const paidWorkOrders = await prisma.workOrder.findMany({
+        where: {
+          vehicleId: workOrder.vehicleId,
+          tenantId,
+          status: "PAID",
+        },
+        select: { laborJson: true },
+      });
+
       const completedTasks: string[] = [];
-      for (const wo of workOrder.vehicle.workOrders) {
+      for (const wo of paidWorkOrders) {
         if (!Array.isArray(wo.laborJson)) continue;
         for (const item of wo.laborJson) {
           if (
@@ -286,7 +489,7 @@ export async function lockQuote(
 
   const { tenantId } = await verifySession();
 
-  const { laborHours, customerSuppliedParts } = params;
+  const { laborHours } = params;
 
   if (
     typeof laborHours !== "number" ||
@@ -319,7 +522,8 @@ export async function lockQuote(
 
   // --- Backend math -----------------------------------------------------
   const partsSubtotalCents = parts.reduce((sum, p) => {
-    const unitPrice = customerSuppliedParts
+    const isCustomerSupplied = !!p.customerSupplied;
+    const unitPrice = isCustomerSupplied
       ? p.wholesalePriceCents
       : p.retailPriceCents;
     return sum + unitPrice * p.quantity;
@@ -383,20 +587,17 @@ export async function getSendPageData(
 
   const { tenantId } = await verifySession();
 
-  let workOrder: {
-    id: string;
-    title: string;
-    status: string;
-    laborCents: number;
-    partsCents: number;
-    tenantId: string;
-    vehicle: {
-      make: string | null;
-      model: string | null;
-      year: number | null;
-      client: { firstName: string; lastName: string; phone: string };
-    };
-  } | null = null;
+  let workOrder:
+    | {
+        id: string;
+        title: string;
+        status: string;
+        laborCents: number;
+        partsCents: number;
+        tenantId: string;
+        vehicleId: string;
+      }
+    | null = null;
 
   try {
     workOrder = await prisma.workOrder.findFirst({
@@ -408,14 +609,7 @@ export async function getSendPageData(
         laborCents: true,
         partsCents: true,
         tenantId: true,
-        vehicle: {
-          select: {
-            make: true,
-            model: true,
-            year: true,
-            client: { select: { firstName: true, lastName: true, phone: true } },
-          },
-        },
+        vehicleId: true,
       },
     });
   } catch {
@@ -424,6 +618,25 @@ export async function getSendPageData(
 
   if (!workOrder) {
     return { error: "Work order not found." };
+  }
+
+  const vehicle = await prisma.vehicle.findFirst({
+    where: { id: workOrder.vehicleId, tenantId },
+    select: {
+      make: true,
+      model: true,
+      year: true,
+      client: { select: { firstName: true, lastName: true, phone: true } },
+    },
+  });
+
+  if (!vehicle) {
+    return { error: "Vehicle not found." };
+  }
+
+  const client = vehicle.client;
+  if (!client) {
+    return { error: "Client not found." };
   }
 
   // Allow mechanics to revisit the send page even after the SMS has been sent
@@ -448,11 +661,15 @@ export async function getSendPageData(
       partsCents: workOrder.partsCents,
       parts,
       shopRateCents,
-      client: workOrder.vehicle.client,
+      client: {
+        firstName: client.firstName,
+        lastName: client.lastName,
+        phone: client.phone,
+      },
       vehicle: {
-        make: workOrder.vehicle.make ?? "",
-        model: workOrder.vehicle.model ?? "",
-        year: workOrder.vehicle.year ?? 0,
+        make: vehicle.make ?? "",
+        model: vehicle.model ?? "",
+        year: vehicle.year ?? 0,
       },
     },
   };
@@ -483,12 +700,14 @@ export async function sendQuote(
   const { tenantId } = await verifySession();
 
   // --- Fetch WorkOrder + client data -----------------------------------
-  let workOrder: {
-    status: string;
-    title: string;
-    approvalToken: string | null;
-    vehicle: { client: { firstName: string; lastName: string; phone: string } };
-  } | null = null;
+  let workOrder:
+    | {
+        status: string;
+        title: string;
+        approvalToken: string | null;
+        vehicleId: string;
+      }
+    | null = null;
 
   try {
     workOrder = await prisma.workOrder.findFirst({
@@ -497,7 +716,7 @@ export async function sendQuote(
         status: true,
         title: true,
         approvalToken: true,
-        vehicle: { select: { client: { select: { firstName: true, lastName: true, phone: true } } } },
+        vehicleId: true,
       },
     });
   } catch (err) {
@@ -507,6 +726,17 @@ export async function sendQuote(
 
   if (!workOrder) {
     return { error: "Work order not found." };
+  }
+
+  const vehicle = await prisma.vehicle.findFirst({
+    where: { id: workOrder.vehicleId, tenantId },
+    select: {
+      client: { select: { firstName: true, lastName: true, phone: true } },
+    },
+  });
+
+  if (!vehicle || !vehicle.client) {
+    return { error: "Client not found for this work order." };
   }
 
   if (workOrder.status === "PENDING_APPROVAL") {
@@ -562,7 +792,7 @@ export async function sendQuote(
     `Your mechanic has finished diagnosing your vehicle. ` +
     `Tap here to review and approve the repair quote: ${portalUrl}`;
 
-  const smsResult = await sendSMS(workOrder.vehicle.client.phone, smsBody);
+  const smsResult = await sendSMS(vehicle.client.phone, smsBody);
   if (!smsResult.success) {
     console.error("[sendQuote] SMS delivery failed:", smsResult.error);
   }
@@ -722,7 +952,8 @@ export async function submitChangeOrder(
   }
 
   revalidatePath("/jobs");
-  revalidateTag("jobs", {});
+  revalidateTag("jobs", "max");
+  revalidateTag("work-orders", "max");
   return { success: true, portalUrl };
 }
 
@@ -853,6 +1084,7 @@ export async function submitSupplementalChangeOrder(
   }
 
   revalidatePath("/jobs");
-  revalidateTag("jobs", {});
+  revalidateTag("jobs", "max");
+  revalidateTag("work-orders", "max");
   return { success: true, portalUrl };
 }

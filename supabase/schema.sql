@@ -240,7 +240,8 @@ create table if not exists clients (
   client_user_id      uuid        references auth.users(id),
   opted_out_sms       boolean     not null default false,
   created_at          timestamptz not null default now(),
-  updated_at          timestamptz not null default now()
+  updated_at          timestamptz not null default now(),
+  is_archived         boolean     not null default false
 );
 
 comment on table clients is
@@ -333,6 +334,7 @@ create table if not exists work_orders (
   approval_token          uuid              unique,
   closed_at               timestamptz,
   payment_method          text,
+  qbo_invoice_id          text,
   version_hash            uuid              not null default gen_random_uuid(),
   is_locked               boolean           not null default false,
   labor_json              jsonb,

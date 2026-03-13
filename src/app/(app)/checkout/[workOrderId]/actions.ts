@@ -7,6 +7,7 @@ import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
 import { verifySession } from "@/lib/auth";
 import { renderContractPdf } from "@/lib/pdf-renderer";
 import { sendContractEmail } from "@/lib/email";
+import { createWorkOrderEvent } from "@/app/(app)/work-orders/[workOrderId]/actions";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -62,22 +63,18 @@ export async function getCheckoutData(
 
   const { tenantId } = await verifySession();
 
-  let workOrder: {
-    id: string;
-    title: string;
-    status: string;
-    laborCents: number;
-    partsCents: number;
-    tenantId: string;
-    closedAt: Date | null;
-    paymentMethod: string | null;
-    vehicle: {
-      make: string | null;
-      model: string | null;
-      year: number | null;
-      client: { firstName: string; lastName: string; phone: string };
-    };
-  } | null = null;
+  let workOrder:
+    | {
+        id: string;
+        title: string;
+        status: string;
+        laborCents: number;
+        partsCents: number;
+        closedAt: Date | null;
+        paymentMethod: string | null;
+        vehicleId: string;
+      }
+    | null = null;
 
   try {
     workOrder = await prisma.workOrder.findFirst({
@@ -88,17 +85,9 @@ export async function getCheckoutData(
         status: true,
         laborCents: true,
         partsCents: true,
-        tenantId: true,
         closedAt: true,
         paymentMethod: true,
-        vehicle: {
-          select: {
-            make: true,
-            model: true,
-            year: true,
-            client: { select: { firstName: true, lastName: true, phone: true } },
-          },
-        },
+        vehicleId: true,
       },
     });
   } catch {
@@ -107,6 +96,33 @@ export async function getCheckoutData(
 
   if (!workOrder) {
     return { error: "Work order not found." };
+  }
+
+  const vehicle = await prisma.vehicle.findFirst({
+    where: { id: workOrder.vehicleId, tenantId },
+    select: {
+      make: true,
+      model: true,
+      year: true,
+      clientId: true,
+    },
+  });
+
+  if (!vehicle) {
+    return { error: "Vehicle not found for this work order." };
+  }
+
+  const client = await prisma.client.findFirst({
+    where: { id: vehicle.clientId },
+    select: {
+      firstName: true,
+      lastName: true,
+      phone: true,
+    },
+  });
+
+  if (!client) {
+    return { error: "Client not found for this work order." };
   }
 
   const isPaid = workOrder.status === "PAID";
@@ -145,11 +161,15 @@ export async function getCheckoutData(
       isPaid,
       closedAt: workOrder.closedAt ? workOrder.closedAt.toISOString() : null,
       paymentMethod: workOrder.paymentMethod,
-      client: workOrder.vehicle.client,
+      client: {
+        firstName: client.firstName,
+        lastName: client.lastName,
+        phone: client.phone,
+      },
       vehicle: {
-        make: workOrder.vehicle.make ?? "",
-        model: workOrder.vehicle.model ?? "",
-        year: workOrder.vehicle.year ?? 0,
+        make: vehicle.make ?? "",
+        model: vehicle.model ?? "",
+        year: vehicle.year ?? 0,
       },
     },
   };
@@ -174,30 +194,43 @@ export async function generateAndSendInvoice(
   const { tenantId } = await verifySession();
 
   try {
-    const workOrder = await prisma.workOrder.findFirst({
-      where: { id: workOrderId, tenantId },
-      select: {
-        id: true,
-        status: true,
-        laborCents: true,
-        partsCents: true,
-        vehicle: {
-          select: {
-            client: {
-              select: { firstName: true, lastName: true, email: true },
-            },
-          },
+    const [workOrder, tenant] = await Promise.all([
+      prisma.workOrder.findFirst({
+        where: { id: workOrderId, tenantId },
+        select: {
+          id: true,
+          status: true,
+          laborCents: true,
+          partsCents: true,
+          vehicleId: true,
         },
-      },
-    });
-
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { name: true },
-    });
+      }),
+      prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { name: true },
+      }),
+    ]);
 
     if (!workOrder || !tenant) {
       return { error: "Work order not found." };
+    }
+
+    const vehicle = await prisma.vehicle.findFirst({
+      where: { id: workOrder.vehicleId, tenantId },
+      select: { clientId: true },
+    });
+
+    if (!vehicle) {
+      return { error: "Vehicle not found for this work order." };
+    }
+
+    const client = await prisma.client.findFirst({
+      where: { id: vehicle.clientId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+
+    if (!client) {
+      return { error: "Client not found for this work order." };
     }
 
     if (workOrder.status !== "COMPLETE" && workOrder.status !== "INVOICED") {
@@ -212,8 +245,8 @@ export async function generateAndSendInvoice(
     const totalCents = subtotalCents + taxCents;
     const totalDollars = (totalCents / 100).toFixed(2);
 
-    const clientName = `${workOrder.vehicle.client.firstName} ${workOrder.vehicle.client.lastName}`;
-    const clientEmail = workOrder.vehicle.client.email ?? undefined;
+    const clientName = `${client.firstName} ${client.lastName}`;
+    const clientEmail = client.email ?? undefined;
 
     const formattedSignedAt = new Date().toLocaleString("en-US", {
       dateStyle: "full",
@@ -309,7 +342,8 @@ export async function generateAndSendInvoice(
 
     revalidatePath("/jobs");
     revalidatePath(`/work-orders/${workOrder.id}`);
-    revalidateTag("jobs", {});
+    revalidateTag("jobs", "max");
+    revalidateTag("work-orders", "max");
 
     return { success: true };
   } catch (err) {
@@ -345,15 +379,21 @@ export async function processPayment(
     return { error: "Missing work order ID." };
   }
 
-  const { tenantId } = await verifySession();
+  const { tenantId, userId } = await verifySession();
 
-  // --- Fetch work order to validate state ----------------------------------
-  let workOrder: { id: string; status: string } | null = null;
+  // --- Fetch work order to validate state and get amounts for audit ----------
+  let workOrder: {
+    id: string;
+    status: string;
+    title: string;
+    laborCents: number;
+    partsCents: number;
+  } | null = null;
 
   try {
     workOrder = await prisma.workOrder.findFirst({
       where: { id: workOrderId, tenantId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, title: true, laborCents: true, partsCents: true },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Database error.";
@@ -368,13 +408,14 @@ export async function processPayment(
     return { error: "This work order has already been paid." };
   }
 
-  // Determine the stored payment method string.
+  // Determine the stored payment method string (must match isCardPayment in payment-fees.ts).
   let storedMethod: string;
   if (paymentMethod === "card") {
     storedMethod = cardDetails ? "card_manual" : "card_tap";
   } else {
-    // cash_check — caller passes "cash" or "check" as the brand field
-    storedMethod = cardDetails?.brand ?? "cash";
+    // cash_check — caller passes "cash" or "check" as the brand field; normalize to avoid invalid values
+    const raw = cardDetails?.brand ?? "cash";
+    storedMethod = raw === "check" ? "check" : "cash";
   }
 
   const closedAt = new Date();
@@ -400,11 +441,18 @@ export async function processPayment(
       const wo = await tx.workOrder.findFirst({
         where: { id: workOrderId, tenantId },
         select: {
-          vehicle: { select: { oilType: true } },
+          vehicleId: true,
         },
       });
 
-      const oilType = wo?.vehicle?.oilType ?? null;
+      let oilType: string | null = null;
+      if (wo?.vehicleId) {
+        const vehicle = await tx.vehicle.findFirst({
+          where: { id: wo.vehicleId, tenantId },
+          select: { oilType: true },
+        });
+        oilType = (vehicle?.oilType as string | null) ?? null;
+      }
 
       if (oilType) {
         // 3. Find the matching consumable row by name similarity (case-insensitive prefix match).
@@ -451,7 +499,31 @@ export async function processPayment(
     // Non-fatal — Prisma write succeeded.
   }
 
+  // --- Audit trail: record payment in work_order_events ---------------------
+  const totalCents = Math.round(
+    (workOrder.laborCents + workOrder.partsCents) * (1 + TAX_RATE),
+  );
+  const totalFormatted = (totalCents / 100).toFixed(2);
+  try {
+    await createWorkOrderEvent({
+      workOrderId,
+      scope: "WORK_ORDER",
+      kind: "SYSTEM",
+      title: "Payment recorded",
+      body: `Payment recorded: $${totalFormatted} (labor + parts + tax). Method: ${storedMethod}.`,
+      metadataJson: {
+        actorUserId: userId,
+        amountCents: totalCents,
+        paymentMethod: storedMethod,
+        closedAt: closedAt.toISOString(),
+      },
+    });
+  } catch {
+    // Non-fatal — payment already persisted; audit event is best-effort.
+  }
+
   revalidatePath("/jobs");
-  revalidateTag("jobs", {});
+  revalidateTag("jobs", "max");
+  revalidateTag("work-orders", "max");
   return { success: true, closedAt: closedAt.toISOString() };
 }

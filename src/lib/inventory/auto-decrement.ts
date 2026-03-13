@@ -10,6 +10,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { applyWorkOrderPartsUsage } from "@/lib/inventory/stock";
 
 /**
  * Decrements the matching oil consumable in the tenant's inventory when a
@@ -24,6 +25,9 @@ export async function decrementStockForWorkOrder(
   tenantId: string,
 ): Promise<void> {
   try {
+    // First, apply generic parts usage based on the work order's parts_json.
+    await applyWorkOrderPartsUsage(workOrderId, tenantId);
+
     // Fetch work order with vehicle → globalVehicle
     const workOrder = await prisma.workOrder.findUnique({
       where: { id: workOrderId },

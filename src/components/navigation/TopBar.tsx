@@ -15,13 +15,13 @@ import { UserNav } from "./UserNav";
 // ---------------------------------------------------------------------------
 
 const ROUTE_TITLES: Record<string, string> = {
-  "/analytics":     "Financials",
-  "/jobs":          "Active Jobs",
+  "/analytics":     "Money",
+  "/jobs":          "Today",
   "/calendar":      "Calendar",
   "/intake":        "Vehicle Intake",
   "/clients":       "Clients",
   "/settings":      "Settings",
-  "/inventory":     "Inventory Management",
+  "/inventory":     "Packages & Parts",
   "/marketing":     "Retention Engine",
   "/accounting":    "Accounting",
   "/dispatch/qa":   "QA Inbox",
@@ -39,7 +39,7 @@ function getPageTitle(pathname: string): string {
   for (const route of Object.keys(ROUTE_TITLES)) {
     if (pathname.startsWith(route + "/")) return ROUTE_TITLES[route];
   }
-  return "DriveSync";
+  return "Boltbook";
 }
 
 // ---------------------------------------------------------------------------

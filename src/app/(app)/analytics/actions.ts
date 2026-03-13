@@ -3,15 +3,8 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
-import { verifySession } from "@/lib/auth";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Stripe / Square processing fee approximation: 2.9 % + $0.30 per transaction. */
-const CARD_FEE_RATE = 0.029;
-const CARD_FEE_FIXED_CENTS = 30;
+import { verifySession, getUserRole } from "@/lib/auth";
+import { isCardPayment, computeCardFeeCents } from "@/lib/payment-fees";
 
 /**
  * When partsCostCents is not recorded on a WorkOrder we assume the wholesale
@@ -35,9 +28,19 @@ export type WeeklyRevenue = {
   revenueCents: number;
 };
 
+/** Boltbook oil-change focused metrics (MTD). */
+export type OilChangeMetrics = {
+  oilChangeCount: number;
+  avgTicketCents: number;
+  /** Percentage of PAID jobs with at least one light job (e.g. brake) in checklists_json. */
+  addOnAttachRatePercent: number;
+};
+
 export type AnalyticsData = {
   metrics: FinancialMetrics;
+  ytd: FinancialMetrics;
   weeklyRevenue: WeeklyRevenue[];
+  oilChange: OilChangeMetrics;
 };
 
 // ---------------------------------------------------------------------------
@@ -45,8 +48,7 @@ export type AnalyticsData = {
 // ---------------------------------------------------------------------------
 
 /**
- * Aggregates financial data from PAID WorkOrders for the current month
- * and the last 8 weeks.
+ * Aggregates financial data from PAID WorkOrders: MTD, YTD, and last 8 weeks.
  *
  * COGS calculation:
  *  - If partsCostCents is recorded: use it directly.
@@ -57,66 +59,99 @@ export type AnalyticsData = {
 export async function fetchAnalytics(): Promise<
   { data: AnalyticsData } | { data: null; error: string }
 > {
-  const { tenantId } = await verifySession();
+  const { tenantId, userId } = await verifySession();
+
+  const roleRow = await getUserRole(userId);
+  if (roleRow?.role !== "SHOP_OWNER") {
+    return { data: null, error: "Only shop owners can view financial analytics." };
+  }
 
   try {
-    // --- MTD window ---
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+    const eightWeeksAgo = new Date(now);
+    eightWeeksAgo.setDate(eightWeeksAgo.getDate() - 56);
 
-    const paidMTD = await prisma.workOrder.findMany({
-      where: {
-        tenantId,
-        status: "PAID",
-        closedAt: { gte: startOfMonth },
-      },
-      select: {
-        laborCents: true,
-        partsCents: true,
-        partsCostCents: true,
-      },
-    });
+    const [paidMTD, paidYTD, paidWeekly] = await Promise.all([
+      prisma.workOrder.findMany({
+        where: {
+          tenantId,
+          status: "PAID",
+          closedAt: { gte: startOfMonth },
+        },
+        select: {
+          laborCents: true,
+          partsCents: true,
+          partsCostCents: true,
+          paymentMethod: true,
+        },
+      }),
+      prisma.workOrder.findMany({
+        where: {
+          tenantId,
+          status: "PAID",
+          closedAt: { gte: startOfYear },
+        },
+        select: {
+          laborCents: true,
+          partsCents: true,
+          partsCostCents: true,
+          paymentMethod: true,
+        },
+      }),
+      prisma.workOrder.findMany({
+        where: {
+          tenantId,
+          status: "PAID",
+          closedAt: { gte: eightWeeksAgo },
+        },
+        select: {
+          laborCents: true,
+          partsCents: true,
+          closedAt: true,
+        },
+      }),
+    ]);
 
-    // Gross Revenue = sum of (labor + parts) * (1 + tax)
+    // --- MTD metrics ---
     let grossRevenueCents = 0;
     let partsCOGSCents = 0;
     let cardFeesCents = 0;
-
     for (const wo of paidMTD) {
       const subtotal = wo.laborCents + wo.partsCents;
       const total = Math.round(subtotal * (1 + TAX_RATE));
-
       grossRevenueCents += total;
-
-      // COGS: actual wholesale cost or estimated from margin
       const cogs =
         wo.partsCostCents !== null
           ? wo.partsCostCents
           : Math.round(wo.partsCents * DEFAULT_PARTS_COST_RATIO);
       partsCOGSCents += cogs;
-
-      // Card processing fees (approximate — applied to the full total)
-      cardFeesCents += Math.round(total * CARD_FEE_RATE) + CARD_FEE_FIXED_CENTS;
+      if (isCardPayment(wo.paymentMethod)) {
+        cardFeesCents += computeCardFeeCents(total);
+      }
     }
-
     const netProfitCents = grossRevenueCents - partsCOGSCents - cardFeesCents;
 
-    // --- Weekly revenue for last 8 weeks ---
-    const eightWeeksAgo = new Date();
-    eightWeeksAgo.setDate(eightWeeksAgo.getDate() - 56);
-
-    const paidWeekly = await prisma.workOrder.findMany({
-      where: {
-        tenantId,
-        status: "PAID",
-        closedAt: { gte: eightWeeksAgo },
-      },
-      select: {
-        laborCents: true,
-        partsCents: true,
-        closedAt: true,
-      },
-    });
+    // --- YTD metrics ---
+    let ytdGrossRevenueCents = 0;
+    let ytdPartsCOGSCents = 0;
+    let ytdCardFeesCents = 0;
+    for (const wo of paidYTD) {
+      const subtotal = wo.laborCents + wo.partsCents;
+      const total = Math.round(subtotal * (1 + TAX_RATE));
+      ytdGrossRevenueCents += total;
+      const cogs =
+        wo.partsCostCents !== null
+          ? wo.partsCostCents
+          : Math.round(wo.partsCents * DEFAULT_PARTS_COST_RATIO);
+      ytdPartsCOGSCents += cogs;
+      if (isCardPayment(wo.paymentMethod)) {
+        ytdCardFeesCents += computeCardFeeCents(total);
+      }
+    }
+    const ytdNetProfitCents =
+      ytdGrossRevenueCents - ytdPartsCOGSCents - ytdCardFeesCents;
 
     // Build week buckets (ISO week starting Monday)
     function getWeekStart(date: Date): Date {
@@ -159,10 +194,54 @@ export async function fetchAnalytics(): Promise<
       (b) => ({ weekLabel: b.label, revenueCents: b.cents }),
     );
 
+    // --- Oil-change focused metrics (MTD): count, avg ticket, add-on attach rate ---
+    const paidMTDWithChecklists = await prisma.workOrder.findMany({
+      where: {
+        tenantId,
+        status: "PAID",
+        closedAt: { gte: startOfMonth },
+        isDiagnostic: false,
+      },
+      select: {
+        laborCents: true,
+        partsCents: true,
+        checklists_json: true,
+      },
+    });
+
+    const oilChangeCount = paidMTDWithChecklists.length;
+    let totalTicketCents = 0;
+    let withAddOn = 0;
+    for (const wo of paidMTDWithChecklists) {
+      const subtotal = wo.laborCents + wo.partsCents;
+      totalTicketCents += Math.round(subtotal * (1 + TAX_RATE));
+      const raw = wo.checklists_json as { lightJobs?: unknown[] } | null;
+      if (Array.isArray(raw?.lightJobs) && raw.lightJobs.length > 0) {
+        withAddOn += 1;
+      }
+    }
+    const avgTicketCents =
+      oilChangeCount > 0 ? Math.round(totalTicketCents / oilChangeCount) : 0;
+    const addOnAttachRatePercent =
+      oilChangeCount > 0
+        ? Math.round((withAddOn / oilChangeCount) * 100)
+        : 0;
+
     return {
       data: {
         metrics: { grossRevenueCents, partsCOGSCents, cardFeesCents, netProfitCents },
+        ytd: {
+          grossRevenueCents: ytdGrossRevenueCents,
+          partsCOGSCents: ytdPartsCOGSCents,
+          cardFeesCents: ytdCardFeesCents,
+          netProfitCents: ytdNetProfitCents,
+        },
         weeklyRevenue,
+        oilChange: {
+          oilChangeCount,
+          avgTicketCents,
+          addOnAttachRatePercent,
+        },
       },
     };
   } catch (err) {

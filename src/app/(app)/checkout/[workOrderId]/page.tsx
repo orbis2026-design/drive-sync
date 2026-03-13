@@ -1,4 +1,4 @@
-import { getCheckoutData } from "./actions";
+import { getCheckoutDataCached } from "./data";
 import { CheckoutClient } from "./CheckoutClient";
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ export default async function CheckoutPage({
 }) {
   const { workOrderId } = await params;
 
-  const result = await getCheckoutData(workOrderId);
+  const result = await getCheckoutDataCached(workOrderId);
 
   if ("error" in result) {
     return <ErrorScreen message={result.error} />;

@@ -201,6 +201,8 @@ The following variables must **never** be prefixed with `NEXT_PUBLIC_`:
 | `CARMD_PARTNER_TOKEN` | Same as above. |
 | `TWILIO_AUTH_TOKEN` | Can send SMS messages or make calls billed to your account. |
 | `LEXICON_SECRET` | Protects the lexicon extraction cron endpoint from unauthorised triggers. |
+| `QBO_CLIENT_SECRET` | QuickBooks OAuth client secret; never log or expose. |
+| `QBO_TOKEN_ENCRYPTION_KEY` | Optional. 32-byte hex (64 chars) or base64 key to encrypt QBO OAuth tokens at rest. If unset, tokens are stored in plaintext (not recommended for production). |
 
 **Safe for `NEXT_PUBLIC_` prefix (non-secret configuration):**
 - `NEXT_PUBLIC_SUPABASE_URL` — the public project URL, not a secret

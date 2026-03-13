@@ -72,13 +72,13 @@ export function Sidebar({ role, tabs }: SidebarProps) {
         <Link
           href="/jobs"
           className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 rounded"
-          aria-label="DriveSync — go to jobs"
+          aria-label="Boltbook — go to today's jobs"
         >
           <span className="text-yellow-400 font-bold text-xl tracking-tight">
             DS
           </span>
           <span className="text-white font-semibold text-lg tracking-tight">
-            DriveSync
+            Boltbook
           </span>
         </Link>
         {role && (

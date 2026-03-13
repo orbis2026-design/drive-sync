@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import {
   lockQuote,
+  updateCustomerSuppliedParts,
   type QuoteData,
   type SelectedPart,
   type QuoteCalculation,
@@ -20,12 +21,10 @@ function formatCents(cents: number): string {
   return (cents / 100).toFixed(2);
 }
 
-function calcPartsSubtotal(
-  parts: SelectedPart[],
-  customerSupplied: boolean,
-): number {
+function calcPartsSubtotal(parts: (SelectedPart & { customerSupplied?: boolean })[]): number {
   return parts.reduce((sum, p) => {
-    const unitPrice = customerSupplied
+    const isCustomerSupplied = !!p.customerSupplied;
+    const unitPrice = isCustomerSupplied
       ? p.wholesalePriceCents
       : p.retailPriceCents;
     return sum + unitPrice * p.quantity;
@@ -58,12 +57,13 @@ function SupplierBadge({ supplier }: { supplier: SelectedPart["supplier"] }) {
 // ---------------------------------------------------------------------------
 
 interface PartRowProps {
-  part: SelectedPart;
-  customerSupplied: boolean;
+  part: SelectedPart & { customerSupplied?: boolean };
+  onToggleCustomerSupplied: () => void;
 }
 
-function PartRow({ part, customerSupplied }: PartRowProps) {
-  const unitPrice = customerSupplied
+function PartRow({ part, onToggleCustomerSupplied }: PartRowProps) {
+  const isCustomerSupplied = !!part.customerSupplied;
+  const unitPrice = isCustomerSupplied
     ? part.wholesalePriceCents
     : part.retailPriceCents;
   const lineTotal = unitPrice * part.quantity;
@@ -73,11 +73,18 @@ function PartRow({ part, customerSupplied }: PartRowProps) {
       <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
           <SupplierBadge supplier={part.supplier} />
-          {customerSupplied && (
-            <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
-              Cust. Supplied
-            </span>
-          )}
+          <button
+            type="button"
+            onClick={onToggleCustomerSupplied}
+            className={[
+              "inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest",
+              isCustomerSupplied
+                ? "border-brand-400 text-brand-400 bg-brand-400/10"
+                : "border-gray-600 text-gray-400 bg-gray-800",
+            ].join(" ")}
+          >
+            {isCustomerSupplied ? "Cust. Supplied" : "Shop Supplied"}
+          </button>
         </div>
         <p className="text-sm font-bold text-white leading-snug">{part.name}</p>
         <p className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">
@@ -86,7 +93,7 @@ function PartRow({ part, customerSupplied }: PartRowProps) {
       </div>
 
       <div className="flex-shrink-0 text-right space-y-0.5">
-        {customerSupplied && (
+        {isCustomerSupplied && (
           <p className="text-[10px] text-gray-600 line-through">
             ${formatCents(part.retailPriceCents)}
           </p>
@@ -94,7 +101,7 @@ function PartRow({ part, customerSupplied }: PartRowProps) {
         <p
           className={[
             "text-base font-black",
-            customerSupplied ? "text-brand-400" : "text-white",
+            isCustomerSupplied ? "text-brand-400" : "text-white",
           ].join(" ")}
         >
           ${formatCents(lineTotal)}
@@ -224,70 +231,6 @@ function LaborBlock({ laborHours, shopRateCents, onChange }: LaborBlockProps) {
               ${formatCents(laborSubtotalCents)}
             </p>
           </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// CustomerSuppliedToggle — margin control
-// ---------------------------------------------------------------------------
-
-interface CustomerSuppliedToggleProps {
-  enabled: boolean;
-  onChange: (value: boolean) => void;
-}
-
-function CustomerSuppliedToggle({
-  enabled,
-  onChange,
-}: CustomerSuppliedToggleProps) {
-  return (
-    <section
-      aria-labelledby="margin-heading"
-      className="rounded-2xl border-2 border-gray-700 bg-gray-900 overflow-hidden"
-    >
-      <div className="px-5 py-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <h2
-              id="margin-heading"
-              className="text-sm font-bold text-white leading-snug"
-            >
-              Customer Supplied Parts
-            </h2>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {enabled
-                ? "Retail markup stripped — billing at cost."
-                : "Retail pricing active — 40 % gross margin included."}
-            </p>
-          </div>
-
-          {/* Toggle switch */}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={enabled}
-            aria-label="Customer supplied parts toggle"
-            onClick={() => onChange(!enabled)}
-            className={[
-              "relative inline-flex h-7 w-12 flex-shrink-0 rounded-full border-2 transition-colors duration-200 ease-in-out",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900",
-              enabled
-                ? "bg-brand-400 border-brand-400"
-                : "bg-gray-700 border-gray-600",
-            ].join(" ")}
-          >
-            <span
-              aria-hidden="true"
-              className={[
-                "pointer-events-none inline-block h-5 w-5 rounded-full bg-gray-950 shadow",
-                "transform transition-transform duration-200 ease-in-out mt-0.5",
-                enabled ? "translate-x-5" : "translate-x-0.5",
-              ].join(" ")}
-            />
-          </button>
         </div>
       </div>
     </section>
@@ -569,7 +512,9 @@ export function QuoteBuilderClient({ data }: QuoteBuilderClientProps) {
 
   // --- Controllable state -----------------------------------------------
   const [laborHours, setLaborHours] = useState(0);
-  const [customerSuppliedParts, setCustomerSuppliedParts] = useState(false);
+  const [partsState, setPartsState] = useState<
+    (SelectedPart & { customerSupplied?: boolean })[]
+  >(() => parts.map((p) => ({ ...p, customerSupplied: !!p.customerSupplied })));
   // Tasks added from the Due Services section (each adds 1 labor hour).
   const [addedTasks, setAddedTasks] = useState<string[]>([]);
 
@@ -582,7 +527,7 @@ export function QuoteBuilderClient({ data }: QuoteBuilderClientProps) {
 
   // --- Live preview math (client-side) ---------------------------------
   // These are for display only; the server re-calculates everything on lock.
-  const partsSubtotalCents = calcPartsSubtotal(parts, customerSuppliedParts);
+  const partsSubtotalCents = calcPartsSubtotal(partsState);
   // Include 1 labor hour per added due service task.
   const effectiveLaborHours = Math.max(0, laborHours) + addedTasks.length;
   const laborSubtotalCents = Math.round(effectiveLaborHours * shopRateCents);
@@ -609,10 +554,24 @@ export function QuoteBuilderClient({ data }: QuoteBuilderClientProps) {
   function handleLock() {
     startLockTransition(async () => {
       setLockError(null);
+      // Persist per-line customer-supplied flags before locking.
+      const persistResult = await updateCustomerSuppliedParts(
+        workOrderId,
+        partsState.map((p) => ({
+          partId: p.partId,
+          customerSupplied: !!p.customerSupplied,
+        })),
+      );
+
+      if ("error" in persistResult) {
+        setLockError(persistResult.error);
+        return;
+      }
 
       const result = await lockQuote(workOrderId, {
         laborHours: effectiveLaborHours,
-        customerSuppliedParts,
+        // Per-line flags are persisted above; this global flag is ignored.
+        customerSuppliedParts: false,
       });
 
       if ("error" in result) {
@@ -650,21 +609,8 @@ export function QuoteBuilderClient({ data }: QuoteBuilderClientProps) {
             </p>
           </div>
 
-          {/* ── Margin controls ────────────────────────────────────────── */}
-          <CustomerSuppliedToggle
-            enabled={customerSuppliedParts}
-            onChange={(v) => {
-              setCustomerSuppliedParts(v);
-              // Reset lock so the mechanic re-reviews after a margin change.
-              if (isLocked) {
-                setIsLocked(false);
-                setLockedCalculation(null);
-              }
-            }}
-          />
-
           {/* ── Customer-supplied liability warning (Issue #45) ────────── */}
-          {customerSuppliedParts && (
+          {partsState.some((p) => p.customerSupplied) && (
             <div className="flex items-start gap-2 rounded-xl bg-danger-500/10 border border-danger-500/40 px-4 py-3">
               <span className="text-lg flex-shrink-0" aria-hidden="true">⚠️</span>
               <p className="text-xs text-danger-300 font-medium leading-snug">
@@ -682,26 +628,38 @@ export function QuoteBuilderClient({ data }: QuoteBuilderClientProps) {
                 id="parts-heading"
                 className="text-xs font-bold uppercase tracking-widest text-gray-500"
               >
-                Parts · {parts.length} line{parts.length !== 1 ? "s" : ""}
+                Parts · {partsState.length} line{partsState.length !== 1 ? "s" : ""}
               </h2>
-              {parts.length > 0 && (
+              {partsState.length > 0 && (
                 <p className="text-[10px] text-gray-700">
-                  {customerSuppliedParts
-                    ? "Wholesale (cost)"
-                    : "Retail (40 % margin)"}
+                  Per-line margin: shop vs customer supplied
                 </p>
               )}
             </div>
 
-            {parts.length === 0 ? (
+            {partsState.length === 0 ? (
               <EmptyPartsState workOrderId={workOrderId} />
             ) : (
               <ul className="space-y-2" aria-label="Parts ledger">
-                {parts.map((part) => (
+                {partsState.map((part) => (
                   <PartRow
                     key={part.partId}
                     part={part}
-                    customerSupplied={customerSuppliedParts}
+                    onToggleCustomerSupplied={() => {
+                      setPartsState((prev) => {
+                        const next = prev.map((p) =>
+                          p.partId === part.partId
+                            ? { ...p, customerSupplied: !p.customerSupplied }
+                            : p,
+                        );
+                        if (isLocked) {
+                          // Force re-review after any pricing change.
+                          setIsLocked(false);
+                          setLockedCalculation(null);
+                        }
+                        return next;
+                      });
+                    }}
                   />
                 ))}
               </ul>

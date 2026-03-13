@@ -16,16 +16,16 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: {
-    default: "DriveSync",
-    template: "%s | DriveSync",
+    default: "Boltbook",
+    template: "%s | Boltbook",
   },
   description: "Mobile-first work order management for mechanic shops.",
   manifest: "/manifest.json",
-  applicationName: "DriveSync",
+  applicationName: "Boltbook",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "DriveSync",
+    title: "Boltbook",
   },
   formatDetection: {
     telephone: true,

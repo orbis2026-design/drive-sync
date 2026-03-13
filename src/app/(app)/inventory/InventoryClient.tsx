@@ -1,8 +1,14 @@
 "use client";
 
 import { useOptimistic, useTransition, useState, useRef, useEffect } from "react";
-import type { ConsumableRow } from "./actions";
-import { restockConsumable, createConsumable } from "./actions";
+import type { InventoryRow } from "./actions";
+import {
+  restockConsumable,
+  createConsumable,
+  updateInventoryItem,
+  deleteInventoryItem,
+  restockLowInventory,
+} from "./actions";
 import { useToast } from "@/components/Toast";
 
 // ---------------------------------------------------------------------------
@@ -18,14 +24,14 @@ function formatCents(cents: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// ConsumableCard
+// InventoryCard
 // ---------------------------------------------------------------------------
 
-function ConsumableCard({
+function InventoryCard({
   item,
   onRestock,
 }: {
-  item: ConsumableRow;
+  item: InventoryRow;
   onRestock: (id: string, qty: number) => Promise<void>;
 }) {
   const [qty, setQty] = useState("");
@@ -56,7 +62,10 @@ function ConsumableCard({
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-0.5">
           <p className="text-white font-bold text-sm leading-tight">{item.name}</p>
-          <p className="text-gray-500 text-xs">{item.unit}</p>
+          <p className="text-gray-500 text-xs">
+            {item.partNumber ? `${item.partNumber} · ` : null}
+            {item.unit ?? "Unit"}
+          </p>
         </div>
         {item.isLow && (
           <span
@@ -73,9 +82,9 @@ function ConsumableCard({
       <div className="grid grid-cols-3 gap-2 text-center">
         <div className="rounded-xl bg-gray-800 p-2">
           <p className={["text-2xl font-black tabular-nums", item.isLow ? "text-red-400" : "text-white"].join(" ")}>
-            {item.currentStock % 1 === 0
-              ? item.currentStock
-              : item.currentStock.toFixed(1)}
+            {item.quantity % 1 === 0
+              ? item.quantity
+              : item.quantity.toFixed(1)}
           </p>
           <p className="text-[10px] text-gray-500 uppercase tracking-wide mt-0.5">
             In Stock
@@ -257,9 +266,10 @@ function AddConsumableModal({
 // ---------------------------------------------------------------------------
 
 export function InventoryClient({ initial }: { initial: ConsumableRow[] }) {
-  const [items, setItems] = useState<ConsumableRow[]>(initial);
+  const [items, setItems] = useState<InventoryRow[]>(initial);
   const [showAdd, setShowAdd] = useState(false);
-  const [, startTransition] = useTransition();
+  const [editingItem, setEditingItem] = useState<InventoryRow | null>(null);
+  const [isPending, startTransition] = useTransition();
   const { showToast, toastElement } = useToast();
 
   // Optimistic restock: immediately reflect the quantity change while the
@@ -269,11 +279,15 @@ export function InventoryClient({ initial }: { initial: ConsumableRow[] }) {
     (
       state,
       { id, delta }: { id: string; delta: number },
-    ): ConsumableRow[] =>
+    ): InventoryRow[] =>
       state.map((item) => {
         if (item.id !== id) return item;
-        const newStock = Math.max(0, item.currentStock + delta);
-        return { ...item, currentStock: newStock, isLow: newStock < item.lowStockThreshold };
+        const newQty = Math.max(0, item.quantity + delta);
+        return {
+          ...item,
+          quantity: newQty,
+          isLow: newQty < item.lowStockThreshold,
+        };
       }),
   );
 
@@ -289,8 +303,12 @@ export function InventoryClient({ initial }: { initial: ConsumableRow[] }) {
           setItems((prev) =>
             prev.map((item) => {
               if (item.id !== id) return item;
-              const newStock = Math.max(0, item.currentStock + qty);
-              return { ...item, currentStock: newStock, isLow: newStock < item.lowStockThreshold };
+              const newQty = Math.max(0, item.quantity + qty);
+              return {
+                ...item,
+                quantity: newQty,
+                isLow: newQty < item.lowStockThreshold,
+              };
             }),
           );
           showToast("Stock updated ✓");
@@ -312,16 +330,78 @@ export function InventoryClient({ initial }: { initial: ConsumableRow[] }) {
       showToast(`Error: ${result.error}`, "error");
       return;
     }
-    const newItem: ConsumableRow = {
+    const newItem: InventoryRow = {
       id: result.id,
-      ...data,
+      partNumber: null,
+      name: data.name,
+      unit: data.unit,
+      quantity: data.currentStock,
+      lowStockThreshold: data.lowStockThreshold,
+      costPerUnitCents: data.costPerUnitCents,
       isLow: data.currentStock < data.lowStockThreshold,
     };
     setItems((prev) => [...prev, newItem].sort((a, b) => a.name.localeCompare(b.name)));
-    showToast("Consumable added ✓");
+    showToast("Item added ✓");
   }
 
   const lowCount = optimisticItems.filter((i) => i.isLow).length;
+
+  function handleEditSave(updated: {
+    id: string;
+    name: string;
+    unit: string | null;
+    partNumber: string | null;
+    lowStockThreshold: number;
+  }) {
+    startTransition(async () => {
+      const res = await updateInventoryItem(updated);
+      if ("error" in res) {
+        showToast(`Error: ${res.error}`, "error");
+        return;
+      }
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === updated.id
+            ? {
+                ...item,
+                name: updated.name,
+                unit: updated.unit,
+                partNumber: updated.partNumber,
+                lowStockThreshold: updated.lowStockThreshold,
+                isLow: item.quantity < updated.lowStockThreshold,
+              }
+            : item,
+        ),
+      );
+      setEditingItem(null);
+      showToast("Item updated ✓");
+    });
+  }
+
+  function handleDelete(id: string) {
+    if (!window.confirm("Delete this stock item? This cannot be undone.")) return;
+    startTransition(async () => {
+      const res = await deleteInventoryItem(id);
+      if ("error" in res) {
+        showToast(`Error: ${res.error}`, "error");
+        return;
+      }
+      setItems((prev) => prev.filter((item) => item.id !== id));
+      showToast("Item deleted ✓");
+    });
+  }
+
+  function handleRestockLow() {
+    startTransition(async () => {
+      const res = await restockLowInventory();
+      if ("error" in res) {
+        showToast(`Error: ${res.error}`, "error");
+        return;
+      }
+      const dollars = (res.totalCents / 100).toFixed(2);
+      showToast(`PO #${res.poNumber} created (~$${dollars} incl. tax)`);
+    });
+  }
 
   return (
     <>
@@ -335,10 +415,20 @@ export function InventoryClient({ initial }: { initial: ConsumableRow[] }) {
           className="mx-4 mb-2 rounded-2xl border border-red-700 bg-red-950 px-4 py-3 flex items-center gap-3"
         >
           <span className="text-red-400 text-lg">⚠</span>
-          <p className="text-red-300 text-sm font-semibold">
-            {lowCount} item{lowCount > 1 ? "s are" : " is"} below the low-stock
-            threshold. Order now to avoid delays.
-          </p>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between flex-1 gap-2">
+            <p className="text-red-300 text-sm font-semibold">
+              {lowCount} item{lowCount > 1 ? "s are" : " is"} below the low-stock
+              threshold. Order now to avoid delays.
+            </p>
+            <button
+              type="button"
+              onClick={handleRestockLow}
+              disabled={isPending}
+              className="inline-flex items-center justify-center px-3 py-1.5 rounded-xl text-xs font-semibold bg-red-500 text-black hover:bg-red-400 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Build Restock PO
+            </button>
+          </div>
         </div>
       )}
 
@@ -360,7 +450,25 @@ export function InventoryClient({ initial }: { initial: ConsumableRow[] }) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 px-4 pb-[calc(env(safe-area-inset-bottom)+80px)] sm:pb-6">
           {optimisticItems.map((item) => (
-            <ConsumableCard key={item.id} item={item} onRestock={handleRestock} />
+            <div key={item.id} className="relative group">
+              <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(item)}
+                  className="px-2 py-1 rounded-lg bg-gray-800/90 text-[10px] text-gray-200 hover:bg-gray-700"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(item.id)}
+                  className="px-2 py-1 rounded-lg bg-red-900/90 text-[10px] text-red-200 hover:bg-red-800"
+                >
+                  Delete
+                </button>
+              </div>
+              <InventoryCard item={item} onRestock={handleRestock} />
+            </div>
           ))}
         </div>
       )}
@@ -383,6 +491,120 @@ export function InventoryClient({ initial }: { initial: ConsumableRow[] }) {
           onAdd={handleAdd}
         />
       )}
+
+      {/* Edit modal */}
+      {editingItem && (
+        <EditInventoryModal
+          item={editingItem}
+          onClose={() => setEditingItem(null)}
+          onSave={handleEditSave}
+        />
+      )}
     </>
+  );
+}
+
+type EditInventoryModalProps = {
+  item: InventoryRow;
+  onClose: () => void;
+  onSave: (data: {
+    id: string;
+    name: string;
+    unit: string | null;
+    partNumber: string | null;
+    lowStockThreshold: number;
+  }) => void;
+};
+
+function EditInventoryModal({ item, onClose, onSave }: EditInventoryModalProps) {
+  const [name, setName] = useState(item.name);
+  const [unit, setUnit] = useState(item.unit ?? "");
+  const [partNumber, setPartNumber] = useState(item.partNumber ?? "");
+  const [threshold, setThreshold] = useState(String(item.lowStockThreshold));
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    onSave({
+      id: item.id,
+      name,
+      unit: unit || null,
+      partNumber: partNumber || null,
+      lowStockThreshold: parseFloat(threshold) || 0,
+    });
+    setBusy(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-lg bg-gray-900 rounded-t-3xl border border-gray-700 p-6">
+        <h2 className="text-xl font-black text-white mb-4">Edit Item</h2>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
+              Name
+            </label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              className="bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
+                Unit
+              </label>
+              <input
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
+                SKU / Part #
+              </label>
+              <input
+                value={partNumber}
+                onChange={(e) => setPartNumber(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+              />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
+              Low-Stock Threshold
+            </label>
+            <input
+              type="number"
+              value={threshold}
+              onChange={(e) => setThreshold(e.target.value)}
+              min="0"
+              step="0.1"
+              className="bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-3 rounded-2xl bg-gray-800 text-white font-bold text-sm hover:bg-gray-700 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="flex-1 py-3 rounded-2xl bg-yellow-400 text-gray-900 font-bold text-sm hover:bg-yellow-300 transition-colors disabled:opacity-50"
+            >
+              {busy ? "Saving…" : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }

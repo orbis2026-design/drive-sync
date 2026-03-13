@@ -117,7 +117,7 @@ export async function createDiagnosticWorkOrder(
       // Non-fatal.
     }
 
-    revalidateTag("clients");
+    revalidateTag("clients", "max");
     revalidatePath("/clients");
     return { workOrderId: workOrder.id };
   } catch (err) {
@@ -259,7 +259,7 @@ export async function sendDiagnosticApprovalSms(
       // Non-fatal.
     }
 
-    revalidateTag("clients");
+    revalidateTag("clients", "max");
     revalidatePath("/clients");
     return { ok: true, approvalToken, workOrderId: workOrder.id };
   } catch (err) {

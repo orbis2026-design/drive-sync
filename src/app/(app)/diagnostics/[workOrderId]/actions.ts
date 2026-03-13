@@ -310,15 +310,22 @@ export async function lookupTSBs(
   let year = new Date().getFullYear();
 
   try {
-    const workOrder = await prisma.workOrder.findFirst({
+    const wo = await prisma.workOrder.findFirst({
       where: { id: workOrderId, tenantId },
-      include: { vehicle: { select: { make: true, model: true, year: true } } },
+      select: { vehicleId: true },
     });
 
-    if (workOrder?.vehicle) {
-      make = workOrder.vehicle.make ?? "Unknown";
-      model = workOrder.vehicle.model ?? "Unknown";
-      year = workOrder.vehicle.year ?? new Date().getFullYear();
+    if (wo) {
+      const vehicle = await prisma.vehicle.findFirst({
+        where: { id: wo.vehicleId, tenantId },
+        select: { make: true, model: true, year: true },
+      });
+
+      if (vehicle) {
+        make = vehicle.make ?? "Unknown";
+        model = vehicle.model ?? "Unknown";
+        year = vehicle.year ?? new Date().getFullYear();
+      }
     }
   } catch {
     // Database unavailable in demo — continue with generic vehicle context.

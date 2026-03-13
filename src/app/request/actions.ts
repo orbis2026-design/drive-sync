@@ -162,7 +162,7 @@ export async function submitIntakeRequest(
       // Non-fatal.
     }
 
-    revalidateTag("clients");
+    revalidateTag("clients", "max");
     revalidatePath("/clients");
     return { success: true, workOrderId: workOrder.id };
   } catch (err) {

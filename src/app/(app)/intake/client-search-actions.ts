@@ -114,7 +114,7 @@ export async function createClient(
       },
       select: { id: true },
     });
-    revalidateTag("clients");
+    revalidateTag("clients", "max");
     revalidatePath("/clients");
     return { id: client.id };
   } catch (err) {

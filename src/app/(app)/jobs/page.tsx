@@ -7,8 +7,8 @@ import type { RequestedJobCard } from "./actions";
 // Metadata
 // ---------------------------------------------------------------------------
 export const metadata = {
-  title: "Active Jobs — DriveSync",
-  description: "Live pipeline board showing all open work orders by stage.",
+  title: "Today — Boltbook",
+  description: "Active work orders: oil changes and jobs in progress.",
 };
 
 // ---------------------------------------------------------------------------

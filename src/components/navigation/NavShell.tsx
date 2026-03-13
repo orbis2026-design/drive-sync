@@ -199,19 +199,19 @@ interface NavTab {
 }
 
 const FIELD_TECH_TABS: NavTab[] = [
-  { href: "/calendar", label: "Calendar",   icon: CalendarIcon },
-  { href: "/jobs",     label: "Active Job", icon: WrenchIcon   },
-  { href: "/settings", label: "Settings",    icon: SettingsIcon  },
+  { href: "/calendar", label: "Calendar", icon: CalendarIcon },
+  { href: "/jobs",     label: "Today",    icon: WrenchIcon   },
+  { href: "/settings", label: "Settings", icon: SettingsIcon  },
 ];
 
 const SHOP_OWNER_TABS: NavTab[] = [
-  { href: "/jobs",          label: "Dispatch",      icon: KanbanIcon,                          },
+  { href: "/jobs",          label: "Today",         icon: KanbanIcon,                          },
   { href: "/dispatch/qa",   label: "QA Inbox",      icon: CheckIcon,    hideOnMobile: true     },
   { href: "/clients",       label: "Clients",       icon: ClientsIcon,                         },
   { href: "/fleet/billing", label: "Fleet Billing", icon: FleetIcon,    featureKey: "fleet", hideOnMobile: true },
   { href: "/parts/catalog", label: "Nexpart PO",    icon: ReceiptIcon,                         },
-  { href: "/analytics",     label: "Financials",    icon: AnalyticsIcon,                       },
-  { href: "/inventory",     label: "Inventory",     icon: InventoryIcon, hideOnMobile: true     },
+  { href: "/analytics",     label: "Money",         icon: AnalyticsIcon,                       },
+  { href: "/inventory",     label: "Packages & Parts", icon: InventoryIcon, hideOnMobile: true },
   { href: "/messages",      label: "Messages",      icon: MessagesIcon, hideOnMobile: true     },
   { href: "/hq/chat",       label: "HQ Chat",       icon: HqChatIcon,   hideOnMobile: true     },
   { href: "/expenses",      label: "Expenses",      icon: ExpensesIcon, hideOnMobile: true     },

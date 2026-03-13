@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   type HubWorkOrder,
   type FieldTechOption,
@@ -11,10 +12,24 @@ import {
   assignTech,
   addWorkOrderNote,
   forceApproveWorkOrder,
+  archiveWorkOrder,
+  setOilChangePackage,
+  attachLightJob,
+  signWaiver,
 } from "./actions";
+import {
+  WAIVER_TEMPLATES,
+  type WaiverTemplateId,
+} from "@/lib/schemas/waiver-templates";
 import { generateAndSendInvoice } from "@/app/(app)/checkout/[workOrderId]/actions";
 import { useToast } from "@/components/Toast";
 import type { WorkOrderStatus } from "@prisma/client";
+import { TAX_RATE } from "@/app/(app)/quotes/[workOrderId]/constants";
+import {
+  computeMoneySummary,
+  type WorkOrderLineItem,
+  type WorkOrderMoneySummary,
+} from "@/lib/schemas/work-order-oil-change";
 
 // ---------------------------------------------------------------------------
 // Status config
@@ -45,12 +60,87 @@ const STATUS_STEPS: WorkOrderStatus[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatCents(cents: number): string {
+  return (cents / 100).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+  });
+}
+
+function deriveLineItemsFromJson(json: unknown, kind: WorkOrderLineItem["kind"]): WorkOrderLineItem[] {
+  if (!Array.isArray(json)) return [];
+  return (json as any[])
+    .map((raw, idx): WorkOrderLineItem | null => {
+      if (!raw || typeof raw !== "object") return null;
+      const obj = raw as Record<string, any>;
+      const description: string = String(obj.description ?? obj.name ?? `Line ${idx + 1}`);
+      const quantity = Number(obj.quantity ?? obj.hours ?? 1);
+      const unitPriceCents = Number(
+        obj.unitPriceCents ??
+          obj.retailPriceCents ??
+          obj.wholesalePriceCents ??
+          0,
+      );
+      if (!Number.isFinite(quantity) || !Number.isFinite(unitPriceCents)) {
+        return null;
+      }
+      const subtotalCents =
+        typeof obj.subtotalCents === "number"
+          ? obj.subtotalCents
+          : Math.round(quantity * unitPriceCents);
+
+      return {
+        id: String(obj.id ?? `${kind}-${idx}`),
+        kind,
+        description,
+        price: {
+          unitPriceCents,
+          quantity,
+          subtotalCents,
+        },
+        sku: typeof obj.partNumber === "string" ? obj.partNumber : undefined,
+        tags: Array.isArray(obj.tags) ? obj.tags : undefined,
+      };
+    })
+    .filter((x): x is WorkOrderLineItem => x !== null);
+}
+
+function deriveMoneySummary(workOrder: HubWorkOrder): WorkOrderMoneySummary {
+  const partsItems = deriveLineItemsFromJson(workOrder.partsJson, "PART");
+  const laborItems = deriveLineItemsFromJson(workOrder.laborJson, "LABOR");
+  const items = [...partsItems, ...laborItems];
+
+  // When JSON is empty, fall back to stored roll-ups.
+  if (items.length === 0) {
+    const base = {
+      partsCents: workOrder.partsCents,
+      laborCents: workOrder.laborCents,
+      feesCents: 0,
+    };
+    const subtotal = base.partsCents + base.laborCents;
+    const taxCents = Math.round(subtotal * TAX_RATE);
+    return {
+      ...base,
+      taxCents,
+      totalCents: subtotal + taxCents,
+    };
+  }
+
+  return computeMoneySummary(items, TAX_RATE);
+}
+
+// ---------------------------------------------------------------------------
 // JobCardHubClient
 // ---------------------------------------------------------------------------
 
 export function JobCardHubClient({
   workOrder,
   fieldTechs: initialFieldTechs,
+  events,
 }: {
   workOrder: HubWorkOrder;
   fieldTechs: FieldTechOption[];
@@ -59,10 +149,30 @@ export function JobCardHubClient({
   const [isPending, startTransition] = useTransition();
   const [noteText, setNoteText] = useState("");
   const { showToast, toastElement } = useToast();
+  const router = useRouter();
   const clientName = `${workOrder.vehicle.client.firstName} ${workOrder.vehicle.client.lastName}`;
   const vehicleLabel = [workOrder.vehicle.year, workOrder.vehicle.make, workOrder.vehicle.model]
     .filter(Boolean)
     .join(" ") || "Vehicle";
+
+  function refreshHub() {
+    router.refresh();
+  }
+
+  const money = useMemo(() => deriveMoneySummary(workOrder), [workOrder]);
+  const [isConfigPending, startConfigTransition] = useTransition();
+  const [isLightJobPending, startLightJobTransition] = useTransition();
+  const [waiverModal, setWaiverModal] = useState<{
+    templateId: WaiverTemplateId;
+    signerName: string;
+  } | null>(null);
+  const [isWaiverPending, startWaiverTransition] = useTransition();
+
+  const signedWaiverTitles = useMemo(() => {
+    return new Set(
+      events.filter((e) => e.kind === "FORM").map((e) => e.title),
+    );
+  }, [events]);
 
   function handleAccept() {
     startTransition(async () => {
@@ -71,7 +181,7 @@ export function JobCardHubClient({
         showToast(result.error, "error");
       } else {
         showToast("Request accepted.");
-        window.location.reload();
+        refreshHub();
       }
     });
   }
@@ -84,7 +194,7 @@ export function JobCardHubClient({
         showToast(result.error, "error");
       } else {
         showToast("Request declined.");
-        window.location.reload();
+        refreshHub();
       }
     });
   }
@@ -96,7 +206,7 @@ export function JobCardHubClient({
         showToast(result.error, "error");
       } else {
         showToast(techUserId ? "Technician assigned." : "Assignment cleared.");
-        window.location.reload();
+        refreshHub();
       }
     });
   }
@@ -110,7 +220,7 @@ export function JobCardHubClient({
         showToast(result.error, "error");
       } else {
         showToast("Invoice generated and sent.");
-        window.location.reload();
+        refreshHub();
       }
     });
   }
@@ -153,7 +263,20 @@ export function JobCardHubClient({
         showToast(result.error, "error");
       } else {
         showToast("Work order force-approved.");
-        window.location.reload();
+        refreshHub();
+      }
+    });
+  }
+
+  function handleArchive() {
+    if (!confirm("Archive this job? It will be removed from active boards.")) return;
+    startTransition(async () => {
+      const result = await archiveWorkOrder(workOrder.id);
+      if ("error" in result) {
+        showToast(result.error, "error");
+      } else {
+        showToast("Work order archived.");
+        window.location.href = "/jobs";
       }
     });
   }
@@ -162,84 +285,235 @@ export function JobCardHubClient({
     <div className="flex flex-col gap-6 pb-20 lg:pb-6">
       {toastElement}
 
-      {/* Header */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+      {/* Header + key facts */}
+      <div className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
             <h1 className="text-xl font-black text-white">{workOrder.title}</h1>
-            <p className="mt-1 text-sm text-gray-400">{clientName}</p>
+            <p className="text-sm text-gray-400">{clientName}</p>
             <p className="text-sm text-gray-500">{vehicleLabel}</p>
+            {typeof workOrder.mileageAtIntake === "number" && (
+              <p className="text-xs text-gray-500">
+                Intake mileage{" "}
+                <span className="font-mono">
+                  {workOrder.mileageAtIntake.toLocaleString()} mi
+                </span>
+              </p>
+            )}
           </div>
-          <span
-            className={[
-              "inline-flex items-center rounded-lg px-3 py-1 text-xs font-bold",
-              workOrder.status === "REQUESTED" && "bg-amber-500/20 text-amber-400",
-              workOrder.status === "INTAKE" && "bg-brand-500/20 text-brand-400",
-              workOrder.status === "ACTIVE" && "bg-orange-500/20 text-orange-400",
-              (workOrder.status === "PENDING_APPROVAL" || workOrder.status === "BLOCKED_WAITING_APPROVAL") &&
-                "bg-sky-500/20 text-sky-400",
-              workOrder.status === "COMPLETE" && "bg-emerald-500/20 text-emerald-400",
-              workOrder.status === "INVOICED" && "bg-purple-500/20 text-purple-400",
-              workOrder.status === "PAID" && "bg-gray-500/20 text-gray-400",
-              workOrder.status === "CANCELLED" && "bg-danger-500/20 text-danger-400",
-            ].filter(Boolean).join(" ") || "bg-gray-700 text-gray-300"}
-          >
-            {STATUS_LABELS[workOrder.status]}
-          </span>
-        </div>
-
-        {/* Assign tech (SHOP_OWNER only; show when we have techs and not REQUESTED) */}
-        {initialFieldTechs.length > 0 && workOrder.status !== "REQUESTED" && (
-          <div className="mt-4 flex items-center gap-2">
-            <span className="text-xs text-gray-500">Assigned:</span>
-            <select
-              value={workOrder.assignedTechId ?? ""}
-              onChange={(e) => handleAssignTech(e.target.value || null)}
-              disabled={isPending}
-              className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-white focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
-              aria-label="Assign technician"
+          <div className="flex flex-col items-end gap-2">
+            <span
+              className={[
+                "inline-flex items-center rounded-lg px-3 py-1 text-xs font-bold",
+                workOrder.status === "REQUESTED" && "bg-amber-500/20 text-amber-400",
+                workOrder.status === "INTAKE" && "bg-brand-500/20 text-brand-400",
+                workOrder.status === "ACTIVE" && "bg-orange-500/20 text-orange-400",
+                (workOrder.status === "PENDING_APPROVAL" ||
+                  workOrder.status === "BLOCKED_WAITING_APPROVAL") &&
+                  "bg-sky-500/20 text-sky-400",
+                workOrder.status === "COMPLETE" &&
+                  "bg-emerald-500/20 text-emerald-400",
+                workOrder.status === "INVOICED" &&
+                  "bg-purple-500/20 text-purple-400",
+                workOrder.status === "PAID" && "bg-gray-500/20 text-gray-400",
+                workOrder.status === "CANCELLED" &&
+                  "bg-danger-500/20 text-danger-400",
+              ]
+                .filter(Boolean)
+                .join(" ") || "bg-gray-700 text-gray-300"}
             >
-              <option value="">Unassigned</option>
-              {initialFieldTechs.map((t) => (
-                <option key={t.userId} value={t.userId}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
+              {STATUS_LABELS[workOrder.status]}
+            </span>
+            <p className="text-xs text-gray-500">
+              Created{" "}
+              {new Date(workOrder.createdAt).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </p>
+            {/* Assign tech (SHOP_OWNER only; show when we have techs and not REQUESTED) */}
+            {initialFieldTechs.length > 0 && workOrder.status !== "REQUESTED" && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Assigned:</span>
+                <select
+                  value={workOrder.assignedTechId ?? ""}
+                  onChange={(e) => handleAssignTech(e.target.value || null)}
+                  disabled={isPending}
+                  className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-white focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  aria-label="Assign technician"
+                >
+                  <option value="">Unassigned</option>
+                  {initialFieldTechs.map((t) => (
+                    <option key={t.userId} value={t.userId}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Status timeline */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Status</h2>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {STATUS_STEPS.filter((s) => s !== "CANCELLED" && s !== "BATCHED_PENDING_PAYMENT").map(
-            (status, idx) => {
-              const isActive = workOrder.status === status;
-              const isPast = currentStepIndex >= STATUS_STEPS.indexOf(status);
+      {/* Configured package & light jobs */}
+      <div className="rounded-2xl border border-gray-800 bg-gray-900 p-4 space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500">
+            Oil-change package
+          </h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {["CONVENTIONAL", "SYNTHETIC_BLEND", "FULL_SYNTHETIC", "EURO_SYNTHETIC"].map(
+            (pkgId) => {
+              const currentJson =
+                (workOrder.checklistsJson as any) ?? {};
+              const currentId = currentJson?.oilChangePackageId as
+                | string
+                | undefined;
+              const isActive = currentId === pkgId;
+              const label =
+                pkgId === "CONVENTIONAL"
+                  ? "Conventional"
+                  : pkgId === "SYNTHETIC_BLEND"
+                    ? "Synthetic blend"
+                    : pkgId === "FULL_SYNTHETIC"
+                      ? "Full synthetic"
+                      : "Euro synthetic";
               return (
-                <span
-                  key={status}
+                <button
+                  key={pkgId}
+                  type="button"
+                  disabled={isConfigPending}
+                  onClick={() => {
+                    startConfigTransition(async () => {
+                      const res = await setOilChangePackage(
+                        workOrder.id,
+                        pkgId as any,
+                      );
+                      if ("error" in res) {
+                        showToast(res.error, "error");
+                      } else {
+                        showToast("Package updated.");
+                        refreshHub();
+                      }
+                    });
+                  }}
                   className={[
-                    "rounded-lg px-2 py-1 text-xs font-medium",
-                    isActive && "bg-brand-500/20 text-brand-400",
-                    isPast && !isActive && "bg-gray-700 text-gray-400",
-                    !isPast && !isActive && "text-gray-600",
-                  ].filter(Boolean).join(" ")}
+                    "px-3 py-1.5 rounded-xl text-xs font-semibold border",
+                    isActive
+                      ? "bg-brand-500 text-gray-950 border-brand-400"
+                      : "bg-gray-800 text-gray-200 border-gray-700 hover:bg-gray-700",
+                  ].join(" ")}
                 >
-                  {STATUS_LABELS[status]}
-                </span>
+                  {label}
+                </button>
               );
             },
           )}
         </div>
+
+        <div className="border-t border-gray-800 pt-3 mt-1 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">
+              Light jobs
+            </h3>
+            <button
+              type="button"
+              disabled={isLightJobPending}
+              onClick={() => {
+                startLightJobTransition(async () => {
+                  const res = await attachLightJob(workOrder.id, "SIMPLE_BRAKE_JOB", {
+                    axle: "FRONT",
+                    side: "BOTH",
+                    padsAndRotors: true,
+                  });
+                  if ("error" in res) {
+                    showToast(res.error, "error");
+                  } else {
+                    showToast("Simple brake job attached.");
+                    refreshHub();
+                  }
+                });
+              }}
+              className="inline-flex items-center rounded-xl bg-gray-800 px-3 py-1.5 text-xs font-semibold text-gray-200 border border-gray-700 hover:bg-gray-700 disabled:opacity-50"
+            >
+              + Simple brake job
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-500">
+            Use for quick pad/rotor jobs you pick up during an oil change. Full
+            pricing still flows through Parts and Quote.
+          </p>
+        </div>
       </div>
 
-      {/* Next actions */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Actions</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
+      {/* Waivers & forms */}
+      <div className="rounded-2xl border border-gray-800 bg-gray-900 p-4 space-y-3">
+        <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500">
+          Waivers & forms
+        </h2>
+        <p className="text-[11px] text-gray-500">
+          One-tap to add a waiver; customer name is recorded as signer.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {WAIVER_TEMPLATES.map((t) => {
+            const isSigned = signedWaiverTitles.has(t.name);
+            return (
+              <button
+                key={t.id}
+                type="button"
+                disabled={isWaiverPending || isSigned}
+                onClick={() => setWaiverModal({ templateId: t.id, signerName: clientName })}
+                className={[
+                  "px-3 py-2 rounded-xl text-xs font-semibold border text-left max-w-full",
+                  isSigned
+                    ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400"
+                    : "bg-gray-800 text-gray-200 border-gray-700 hover:bg-gray-700",
+                ].join(" ")}
+              >
+                {isSigned ? "✓ " : ""}
+                {t.name}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Status + primary actions */}
+      <div className="rounded-2xl border border-gray-800 bg-gray-900 p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500">
+            Flow
+          </h2>
+          <div className="flex flex-wrap gap-1">
+            {STATUS_STEPS.filter(
+              (s) => s !== "CANCELLED" && s !== "BATCHED_PENDING_PAYMENT",
+            ).map((status) => {
+              const isActive = workOrder.status === status;
+              const isPast =
+                currentStepIndex >= STATUS_STEPS.indexOf(status);
+              return (
+                <span
+                  key={status}
+                  className={[
+                    "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                    isActive && "bg-brand-500/20 text-brand-400",
+                    isPast && !isActive && "bg-gray-800 text-gray-400",
+                    !isPast && !isActive && "text-gray-600",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  {STATUS_LABELS[status]}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-1 flex flex-wrap gap-2">
           {workOrder.status === "REQUESTED" && (
             <>
               <button
@@ -268,7 +542,8 @@ export function JobCardHubClient({
               Open estimate
             </Link>
           )}
-          {(workOrder.status === "ACTIVE" || workOrder.status === "BLOCKED_WAITING_APPROVAL") && (
+          {(workOrder.status === "ACTIVE" ||
+            workOrder.status === "BLOCKED_WAITING_APPROVAL") && (
             <>
               <Link
                 href={`/parts/${workOrder.id}`}
@@ -292,7 +567,8 @@ export function JobCardHubClient({
               Resend quote link
             </Link>
           )}
-          {(workOrder.status === "ACTIVE" || workOrder.status === "INTAKE") && (
+          {(workOrder.status === "ACTIVE" ||
+            workOrder.status === "INTAKE") && (
             <Link
               href={`/quotes/${workOrder.id}/send`}
               className="inline-flex rounded-xl border border-sky-500/60 bg-sky-500/10 px-4 py-2.5 text-sm font-bold text-sky-300 hover:bg-sky-500/20"
@@ -300,7 +576,8 @@ export function JobCardHubClient({
               Send quote for approval
             </Link>
           )}
-          {(workOrder.hasDamageFlag || workOrder.status === "BLOCKED_WAITING_APPROVAL") && (
+          {(workOrder.hasDamageFlag ||
+            workOrder.status === "BLOCKED_WAITING_APPROVAL") && (
             <Link
               href="/dispatch/qa"
               className="inline-flex rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-2.5 text-sm font-bold text-amber-400 hover:bg-amber-500/20"
@@ -348,6 +625,15 @@ export function JobCardHubClient({
                 Force-approve (owner)
               </button>
             )}
+          {workOrder.viewerIsOwner && !isPending && (
+            <button
+              type="button"
+              onClick={handleArchive}
+              className="inline-flex rounded-xl border border-gray-600 bg-gray-900 px-4 py-2.5 text-sm font-bold text-gray-300 hover:bg-gray-800"
+            >
+              Archive job
+            </button>
+          )}
           {workOrder.status !== "REQUESTED" &&
             workOrder.status !== "INTAKE" &&
             workOrder.status !== "PAID" &&
@@ -380,11 +666,20 @@ export function JobCardHubClient({
         </div>
       </div>
 
-      {/* Timeline */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">
-          Timeline
-        </h2>
+      {/* Pre-inspection & notes */}
+      <div className="rounded-2xl border border-gray-800 bg-gray-900 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500">
+            Pre-inspection & Notes
+          </h2>
+          <Link
+            href={`/diagnostics/${workOrder.id}`}
+            className="text-xs text-brand-400 hover:underline"
+          >
+            Open full inspection
+          </Link>
+        </div>
+
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -396,7 +691,7 @@ export function JobCardHubClient({
                 showToast(res.error, "error");
               } else {
                 setNoteText("");
-                window.location.reload();
+                refreshHub();
               }
             });
           }}
@@ -452,41 +747,81 @@ export function JobCardHubClient({
         </div>
       </div>
 
-      {/* Quick links */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">Quick links</h2>
-        <ul className="mt-2 flex flex-wrap gap-2 text-sm">
-          <li>
-            <Link href={`/diagnostics/${workOrder.id}`} className="text-brand-400 hover:underline">
-              Diagnostics
-            </Link>
-          </li>
-          <li>
-            <Link href={`/parts/${workOrder.id}`} className="text-brand-400 hover:underline">
+      {/* Pricing & payment snapshot */}
+      <div className="rounded-2xl border border-gray-800 bg-gray-900 p-4 space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500">
+            Pricing & Payment
+          </h2>
+          {workOrder.status !== "PAID" &&
+            (workOrder.status === "COMPLETE" ||
+            workOrder.status === "INVOICED" ? (
+              <Link
+                href={`/checkout/${workOrder.id}`}
+                className="inline-flex items-center justify-center rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-gray-950 hover:bg-emerald-400"
+              >
+                Collect payment
+              </Link>
+            ) : (
+              <Link
+                href={`/checkout/${workOrder.id}`}
+                className="text-xs font-bold text-emerald-400 hover:underline"
+              >
+                Open checkout
+              </Link>
+            ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-xl bg-gray-800 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-widest text-gray-500">
               Parts
-            </Link>
-          </li>
-          <li>
-            <Link href={`/quotes/${workOrder.id}`} className="text-brand-400 hover:underline">
-              Quote
-            </Link>
-          </li>
-          <li>
-            <Link href={`/checkout/${workOrder.id}`} className="text-brand-400 hover:underline">
-              Checkout
-            </Link>
-          </li>
-          <li>
-            <Link href={`/clients`} className="text-gray-400 hover:underline">
-              Clients
-            </Link>
-          </li>
-        </ul>
+            </p>
+            <p className="text-sm font-bold text-white">
+              {formatCents(money.partsCents)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-gray-800 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-widest text-gray-500">
+              Labor
+            </p>
+            <p className="text-sm font-bold text-white">
+              {formatCents(money.laborCents)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-gray-800 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-widest text-gray-500">
+              Tax
+            </p>
+            <p className="text-sm font-bold text-white">
+              {formatCents(money.taxCents)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-gray-800 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-widest text-gray-500">
+              Total
+            </p>
+            <p className="text-sm font-black text-brand-400">
+              {formatCents(money.totalCents)}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-xs text-gray-500">
+          <span>
+            Payment method: {workOrder.paymentMethod ?? "—"}
+          </span>
+          <span>
+            {workOrder.closedAt
+              ? `Closed ${new Date(workOrder.closedAt).toLocaleDateString()}`
+              : "Open"}
+          </span>
+        </div>
       </div>
 
       {/* Documents */}
       {workOrder.documents.length > 0 && (
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <div className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
           <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">
             Documents
           </h2>
@@ -526,7 +861,7 @@ export function JobCardHubClient({
 
       {/* Expenses */}
       {workOrder.expenses.length > 0 && (
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <div className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
           <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">
             Expenses
           </h2>
@@ -550,6 +885,66 @@ export function JobCardHubClient({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Waiver sign modal */}
+      {waiverModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm"
+          role="dialog"
+          aria-labelledby="waiver-modal-title"
+        >
+          <div className="w-full max-w-lg bg-gray-900 rounded-t-2xl sm:rounded-2xl border border-gray-800 p-4 space-y-3">
+            <h2 id="waiver-modal-title" className="text-sm font-bold text-white">
+              {WAIVER_TEMPLATES.find((t) => t.id === waiverModal.templateId)?.name ??
+                "Sign waiver"}
+            </h2>
+            <label className="block text-xs text-gray-400">
+              Customer / signer name
+            </label>
+            <input
+              type="text"
+              value={waiverModal.signerName}
+              onChange={(e) =>
+                setWaiverModal((m) => m && { ...m, signerName: e.target.value })
+              }
+              placeholder="Full name"
+              className="w-full rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            />
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setWaiverModal(null)}
+                className="flex-1 py-2.5 rounded-xl bg-gray-800 text-sm font-bold text-gray-200 hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isWaiverPending || !waiverModal.signerName.trim()}
+                onClick={() => {
+                  startWaiverTransition(async () => {
+                    const res = await signWaiver(
+                      workOrder.id,
+                      waiverModal.templateId,
+                      waiverModal.signerName.trim(),
+                    );
+                    if ("error" in res) {
+                      showToast(res.error, "error");
+                    } else {
+                      setWaiverModal(null);
+                      showToast("Waiver recorded.");
+                      refreshHub();
+                    }
+                  });
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-brand-500 text-sm font-bold text-gray-950 hover:bg-brand-400 disabled:opacity-50"
+              >
+                {isWaiverPending ? "Saving…" : "Sign & save"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

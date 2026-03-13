@@ -10,17 +10,16 @@
  *   4. User is redirected to the QBO integration settings page
  *
  * Security notes:
- *   • The state parameter should be validated against a session cookie in production
- *     to prevent CSRF. For simplicity this implementation validates that state is
- *     a non-empty UUID but does not use a session-bound nonce.
- *   • Tokens are stored in plain columns here. In production consider using
- *     Supabase Vault (pgsodium) or server-side encryption before persisting.
+ *   • State is stored in qbo_oauth_state (tenant-bound) before redirect and validated
+ *     in the callback; consumed once to prevent CSRF and replay.
+ *   • Tokens are encrypted at rest when QBO_TOKEN_ENCRYPTION_KEY is set (32-byte hex or base64).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantId } from "@/lib/auth";
 import { logger } from "@/lib/logger";
+import { encryptToken } from "@/lib/qbo-token-cipher";
 
 const QBO_CLIENT_ID = process.env.QBO_CLIENT_ID ?? "";
 const QBO_CLIENT_SECRET = process.env.QBO_CLIENT_SECRET ?? "";
@@ -91,11 +90,51 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  if (!code || !realmId) {
+  const state = searchParams.get("state");
+  if (!code || !realmId || !state) {
     return NextResponse.redirect(
       new URL("/accounting/qbo?error=missing_params", req.url),
     );
   }
+
+  // CSRF: validate state was issued by us for this session and consume once
+  const tenantId = await getTenantId();
+  if (!tenantId) {
+    return NextResponse.redirect(
+      new URL("/accounting/qbo?error=authentication_required", req.url),
+    );
+  }
+
+  const admin = createAdminClient();
+  const { data: stateRow, error: stateError } = await admin
+    .from("qbo_oauth_state")
+    .select("tenant_id, created_at")
+    .eq("state", state)
+    .single();
+
+  if (stateError || !stateRow) {
+    logger.warn("QBO callback: invalid or reused state", { service: "quickbooks" });
+    return NextResponse.redirect(
+      new URL("/accounting/qbo?error=invalid_state", req.url),
+    );
+  }
+
+  if (stateRow.tenant_id !== tenantId) {
+    logger.warn("QBO callback: state tenant mismatch", { service: "quickbooks" });
+    return NextResponse.redirect(
+      new URL("/accounting/qbo?error=invalid_state", req.url),
+    );
+  }
+
+  const createdAt = new Date(stateRow.created_at as string).getTime();
+  const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+  if (createdAt < tenMinutesAgo) {
+    return NextResponse.redirect(
+      new URL("/accounting/qbo?error=state_expired", req.url),
+    );
+  }
+
+  await admin.from("qbo_oauth_state").delete().eq("state", state);
 
   try {
     if (!QBO_CLIENT_ID || !QBO_CLIENT_SECRET) {
@@ -108,22 +147,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const accessToken = tokens.access_token;
     const refreshToken = tokens.refresh_token;
 
-    // Resolve the tenant from the authenticated session
-    const tenantId = await getTenantId();
-    if (!tenantId) {
-      return NextResponse.redirect(
-        new URL("/accounting/qbo?error=authentication_required", req.url),
-      );
-    }
+    // tenantId already resolved above during state validation
 
-    // Persist tokens to the tenants table
-    const admin = createAdminClient();
+    // Persist tokens (encrypted at rest when QBO_TOKEN_ENCRYPTION_KEY is set)
     const { error: dbError } = await admin
       .from("tenants")
       .update({
         qbo_realm_id: realmId,
-        qbo_access_token: accessToken,
-        qbo_refresh_token: refreshToken,
+        qbo_access_token: encryptToken(accessToken),
+        qbo_refresh_token: encryptToken(refreshToken),
       })
       .eq("id", tenantId);
 

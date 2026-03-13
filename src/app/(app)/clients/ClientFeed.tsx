@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useMemo } from "react";
 import Link from "next/link";
-import { checkMaintenanceDue } from "./actions";
+import { checkMaintenanceDue, archiveClient } from "./actions";
 import { type MaintenanceBadge } from "@/lib/maintenance";
 
 // ---------------------------------------------------------------------------
@@ -296,6 +296,7 @@ function VehicleRow({ vehicle }: { vehicle: VehicleData }) {
 // ---------------------------------------------------------------------------
 function ClientCard({ client }: { client: ClientData }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isArchiving, startArchiving] = useTransition();
 
   const vehicleCount = client.vehicles.length;
   const alertCount = client.vehicles.reduce(
@@ -354,6 +355,25 @@ function ClientCard({ client }: { client: ClientData }) {
             <span className="text-sm text-gray-500">
               {vehicleCount} vehicle{vehicleCount !== 1 ? "s" : ""}
             </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!confirm("Archive this client and their work orders?")) return;
+                startArchiving(async () => {
+                  const res = await archiveClient(client.id);
+                  if ("error" in res) {
+                    alert(res.error);
+                  } else {
+                    window.location.reload();
+                  }
+                });
+              }}
+              disabled={isArchiving}
+              className="mt-1 inline-flex items-center rounded-lg border border-gray-600 bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-gray-300 hover:bg-gray-800 disabled:opacity-50"
+            >
+              {isArchiving ? "Archiving…" : "Archive"}
+            </button>
             {/* Chevron */}
             <svg
               xmlns="http://www.w3.org/2000/svg"

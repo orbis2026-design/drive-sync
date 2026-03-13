@@ -54,10 +54,11 @@ export type RequestedJobCard = {
 
 const getCachedActiveJobs = unstable_cache(
   async (tenantId: string): Promise<JobCard[]> => {
-    // First load work orders (no relations to avoid Prisma schema mismatch).
+    // First load work orders with scalar fields only.
     const rows = await prisma.workOrder.findMany({
       where: {
         tenantId,
+        isArchived: false,
         status: { in: [...ACTIVE_STATUSES] },
       },
       orderBy: { createdAt: "asc" },
@@ -92,7 +93,7 @@ const getCachedActiveJobs = unstable_cache(
     });
     const clientById = new Map(clients.map((c) => [c.id, c]));
 
-    return rows.map((row: (typeof rows)[number]) => {
+    return rows.map((row) => {
       const hasQuote = row.laborCents > 0 || row.partsCents > 0;
       const subtotal = row.laborCents + row.partsCents;
       const totalCents = hasQuote
@@ -133,7 +134,7 @@ const getCachedActiveJobs = unstable_cache(
 const getCachedRequestedJobs = unstable_cache(
   async (tenantId: string): Promise<RequestedJobCard[]> => {
     const rows = await prisma.workOrder.findMany({
-      where: { tenantId, status: "REQUESTED" },
+      where: { tenantId, status: "REQUESTED", isArchived: false },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -276,7 +277,7 @@ export async function advanceWorkOrderStatus(
     });
 
     revalidatePath("/jobs");
-    revalidateTag("jobs", {});
+    revalidateTag("jobs", "max");
     return { nextStatus };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to update status.";
