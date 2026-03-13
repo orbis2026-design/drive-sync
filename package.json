@@ -9,7 +9,7 @@
     "lint": "eslint",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "screenshots": "playwright test tests/screenshots.spec.ts --project=\"Desktop Chrome\"",
+    "screenshots": "PORT=3001 PLAYWRIGHT_BASE_URL=http://localhost:3001 playwright test tests/screenshots.spec.ts --project=\"Desktop Chrome\"",
     "db:setup": "npx supabase start && npx supabase db push && npx prisma generate",
     "db:migrate": "npx supabase db push && npx prisma generate",
     "db:reset": "npx supabase db reset && npx prisma generate",
