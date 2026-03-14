@@ -6,15 +6,11 @@
 
 ## Screenshots
 
-| [Landing](docs/screenshots/landing.png) | [Jobs board](docs/screenshots/jobs.png) | [Work order hub](docs/screenshots/work-order-hub.png) |
-|:---:|:---:|:---:|
-| *Landing — Wrench More. Type Less.* | *Today’s jobs and active work orders* | *Job card hub: quote, parts, inspection* |
+| [Landing](docs/screenshots/landing.png) |
+|:---:|
+| *Landing — Wrench More. Type Less.* |
 
-| [Quote builder](docs/screenshots/quote-builder.png) | [Checkout](docs/screenshots/checkout.png) | [Clients](docs/screenshots/clients.png) |
-|:---:|:---:|:---:|
-| *Build and send quotes with parts & labor* | *Checkout and payment* | *Client and vehicle history* |
-
-Generate them with `npm run screenshots` (run `npm run dev` in another terminal first; `npx playwright install` if Playwright browsers are not installed). See [docs/screenshots/README.md](docs/screenshots/README.md).
+Generate with `npm run screenshots` (run `npm run dev` in another terminal first; `npx playwright install` if Playwright browsers are not installed). See [docs/screenshots/README.md](docs/screenshots/README.md).
 
 ---
 
